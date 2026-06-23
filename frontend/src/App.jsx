@@ -1,0 +1,42 @@
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
+import Layout from './components/Layout'
+import Login from './pages/Login'
+import Dashboard from './pages/Dashboard'
+import NewRequest from './pages/NewRequest'
+import RequestDetail from './pages/RequestDetail'
+import Analytics from './pages/Analytics'
+import Settings from './pages/Settings'
+import DumpsPage from './pages/DumpsPage'
+
+const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30000 } } })
+
+function PrivateRoute({ children }) {
+  const { user, loading } = useAuth()
+  if (loading) return <div className="flex items-center justify-center h-screen text-gray-500">Loading…</div>
+  return user ? children : <Navigate to="/login" replace />
+}
+
+export default function App() {
+  return (
+    <QueryClientProvider client={qc}>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
+              <Route index element={<Navigate to="/dashboard" replace />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="requests/new" element={<NewRequest />} />
+              <Route path="requests/:id" element={<RequestDetail />} />
+              <Route path="analytics" element={<Analytics />} />
+              <Route path="dumps" element={<DumpsPage />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </AuthProvider>
+    </QueryClientProvider>
+  )
+}

@@ -1,0 +1,106 @@
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+
+from app.db.deps import get_db
+from app.models.notification import Notification
+from app.models.app_settings import AppSettings
+from app.api.deps.auth import get_current_user, require_admin
+
+notifications_router = APIRouter(prefix="/notifications", tags=["notifications"])
+settings_router = APIRouter(prefix="/settings", tags=["settings"])
+
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+
+@notifications_router.get("/")
+async def list_notifications(
+    unread_only: bool = False,
+    page: int = 1,
+    page_size: int = 30,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    query = select(Notification).order_by(Notification.created_at.desc())
+    if unread_only:
+        query = query.where(Notification.is_read == False)
+    query = query.offset((page - 1) * page_size).limit(page_size)
+
+    items = (await db.execute(query)).scalars().all()
+    total = (await db.execute(
+        select(func.count(Notification.id)).where(
+            Notification.is_read == False if unread_only else True
+        )
+    )).scalar()
+
+    return {
+        "total": total,
+        "items": [
+            {
+                "id": n.id,
+                "type": n.type,
+                "message": n.message,
+                "is_read": n.is_read,
+                "related_request_id": n.related_request_id,
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+            }
+            for n in items
+        ],
+    }
+
+
+@notifications_router.patch("/{notif_id}/read")
+async def mark_read(
+    notif_id: str,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(get_current_user),
+):
+    n = (await db.execute(
+        select(Notification).where(Notification.id == notif_id)
+    )).scalars().first()
+    if not n:
+        raise HTTPException(404, "Not found")
+    n.is_read = True
+    return {"id": notif_id, "is_read": True}
+
+
+@notifications_router.post("/mark-all-read")
+async def mark_all_read(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    from sqlalchemy import update
+    await db.execute(
+        update(Notification).where(Notification.is_read == False).values(is_read=True)
+    )
+    return {"ok": True}
+
+
+# ── App Settings ──────────────────────────────────────────────────────────────
+
+@settings_router.get("/")
+async def get_settings(db: AsyncSession = Depends(get_db), _=Depends(get_current_user)):
+    s = (await db.execute(select(AppSettings).where(AppSettings.id == 1))).scalars().first()
+    if not s:
+        return {}
+    return {
+        "download_base_name": s.download_base_name,
+        "download_version": s.download_version,
+        "recon_cron_time": s.recon_cron_time,
+        "dump_ingest_times": s.dump_ingest_times,
+    }
+
+
+@settings_router.patch("/")
+async def update_settings(
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_admin),
+):
+    s = (await db.execute(select(AppSettings).where(AppSettings.id == 1))).scalars().first()
+    if not s:
+        s = AppSettings(id=1)
+        db.add(s)
+
+    for key in ("download_base_name", "download_version", "recon_cron_time", "dump_ingest_times"):
+        if key in payload:
+            setattr(s, key, payload[key])
+
+    return {"ok": True}
