@@ -7,8 +7,8 @@ from app.models.prr_dump_row import PrrDumpRow
 from app.models.rbar_dump_row import RbarDumpRow
 from app.models.entry_instance_status import EntryInstanceStatus
 from app.models.entry_instance_detail import EntryInstanceDetail
-from app.models.prr_entry import PrrEntry
-from app.models.rbar_entry import RbarEntry
+#from app.models.prr_entry import PrrEntry
+#from app.models.rbar_entry import RbarEntry
 from app.models.enums import ImplStatus, DecisionType
 
 logger = logging.getLogger(__name__)
@@ -113,12 +113,11 @@ class InstanceContext:
         # ── 3. Load PENDING/AWAITING_IMPLEMENTATION PRR changes (Chronological) ───
         prr_pending_rows = (
             await db.execute(
-                select(EntryInstanceStatus, EntryInstanceDetail, PrrEntry)
+                select(EntryInstanceStatus, EntryInstanceDetail)
                 .join(
                     EntryInstanceDetail,
                     EntryInstanceDetail.instance_status_id == EntryInstanceStatus.id,
                 )
-                .join(PrrEntry, PrrEntry.id == EntryInstanceStatus.entry_id)
                 .where(
                     and_(
                         EntryInstanceStatus.dra_type == dra_type,
@@ -149,7 +148,7 @@ class InstanceContext:
             
             ctx.prr_pending_realms[realm_key].append({
                 "action": action,
-                "request_id": entry.request_id,
+                "request_id": status.request_id,
                 "rule": detail.final_prt_rule.lower() if detail.final_prt_rule else None
             })
 
@@ -165,12 +164,11 @@ class InstanceContext:
         # ── 4. Load PENDING/AWAITING_IMPLEMENTATION RBAR changes (Chronological) ──
         rbar_pending_rows = (
             await db.execute(
-                select(EntryInstanceStatus, EntryInstanceDetail, RbarEntry)
+                select(EntryInstanceStatus, EntryInstanceDetail)
                 .join(
                     EntryInstanceDetail,
                     EntryInstanceDetail.instance_status_id == EntryInstanceStatus.id,
                 )
-                .join(RbarEntry, RbarEntry.id == EntryInstanceStatus.entry_id)
                 .where(
                     and_(
                         EntryInstanceStatus.dra_type == dra_type,
@@ -199,7 +197,7 @@ class InstanceContext:
             ctx.rbar_pending_tree.add(Interval(
                 start_val, 
                 end_val + 1, 
-                {"action": action, "request_id": entry.request_id}
+                {"action": action, "request_id": status.request_id}
             ))
 
             target_interval = Interval(start_val, end_val + 1)

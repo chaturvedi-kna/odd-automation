@@ -10,6 +10,8 @@ class EntryInstanceStatus(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
 
+    request_id = Column(String, ForeignKey("change_requests.id"), nullable=False)
+
     entry_id = Column(String, nullable=False)
     entry_type = Column(String, nullable=False)
 
@@ -32,4 +34,5 @@ class EntryInstanceStatus(Base):
         Index("idx_instance_status_lookup", "dra_type", "instance_label"),
         Index("idx_instance_status_impl", "entry_type", "impl_status"),
         Index("idx_instance_status_reconciled", "last_reconciled_at"),
+        Index("idx_instance_status_request", "request_id"), 
     )

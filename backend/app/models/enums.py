@@ -6,6 +6,7 @@ class RequestStatus(str, enum.Enum):
     PROCESSING = "PROCESSING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
+    ROLLEDBACK = "ROLLEDBACK"
 
 
 class DecisionType(str, enum.Enum):
@@ -22,6 +23,7 @@ class ImplStatus(str, enum.Enum):
     PENDING = "PENDING FOR RECONCILIATION"
     IMPLEMENTED = "IMPLEMENTED"
     AWAITING_IMPLEMENTATION = "AWAITING_IMPLEMENTATION"
+    CANCELLED = "CANCELLED"
 
 
 class UserRole(str, enum.Enum):

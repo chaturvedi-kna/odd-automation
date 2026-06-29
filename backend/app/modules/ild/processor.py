@@ -1,12 +1,7 @@
-"""
-ILD request processor.
-Runs inside a Celery task (via asyncio.run) or directly in tests.
-All DB interaction is async.
-"""
 import logging
 from datetime import datetime, timezone
-
 import pandas as pd
+from intervaltree import Interval
 
 from app.models.enums import DecisionType, ImplStatus, RequestStatus
 from app.models.prr_entry import PrrEntry
@@ -14,29 +9,30 @@ from app.models.rbar_entry import RbarEntry
 from app.models.audit_log import AuditLog
 from app.models.entry_instance_status import EntryInstanceStatus
 from app.models.entry_instance_detail import EntryInstanceDetail
+from app.models.entry_instance_relationship import EntryInstanceRelationship
 
 from app.modules.ild.context import InstanceContext
 from app.modules.ild.prr import evaluate_prr_instance
 from app.modules.ild.rbar import evaluate_rbar_instance
 from app.modules.ild.helpers import parse_range
-from app.modules.ild.inheritance import inherit_prr_config, inherit_rbar_config
+from app.modules.ild.inheritance import inherit_prr_template, inherit_rbar_template
 from app.modules.ild.sse import publish_event
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Updated to include SUPERSEDE_PENDING per architecture requirements
 ACTIONABLE_DECISIONS = {
     DecisionType.ADD.value,
     DecisionType.DELETE.value,
     DecisionType.SUPERSEDE.value,
+    DecisionType.SUPERSEDE_PENDING.value,
     DecisionType.DEPENDENCY_ADD.value,
     DecisionType.DEPENDENCY_DELETE.value,
 }
 
 ADD_DECISIONS = {DecisionType.ADD.value, DecisionType.DEPENDENCY_ADD.value}
-DELETE_DECISIONS = {DecisionType.DELETE.value, DecisionType.DEPENDENCY_DELETE.value}
-
-IST = timezone(datetime.now(timezone.utc).utcoffset())  # approx; use pytz in production
+DELETE_DECISIONS = {DecisionType.DELETE.value, DecisionType.DEPENDENCY_DELETE.value, DecisionType.SUPERSEDE_PENDING.value}
 
 
 def _ist_now() -> datetime:
@@ -45,27 +41,21 @@ def _ist_now() -> datetime:
 
 
 def _scope_prr(rule: str) -> bool:
-    """Return True if rule name contains any configured PRR scope suffix."""
     suffixes = [s.strip().lower() for s in settings.PRR_SCOPE_SUFFIXES.split(",") if s.strip()]
     rl = rule.lower()
     return any(rl.endswith(suf) or f"_{suf}" in rl for suf in suffixes)
 
 
-def _scope_rbar(destination: str) -> bool:
-    """Return True if destination ends with any configured RBAR scope suffix."""
-    suffixes = [s.strip().lower() for s in settings.RBAR_SCOPE_SUFFIXES.split(",") if s.strip()]
-    dl = (destination or "").lower()
-    return any(dl.endswith(suf) for suf in suffixes)
-
-
 async def _create_status(
     db,
+    request_id: str,
     entry_id: str,
     entry_type: str,
     inst: dict,
     eval_result: dict,
 ) -> EntryInstanceStatus:
     status = EntryInstanceStatus(
+        request_id=request_id,
         entry_id=entry_id,
         entry_type=entry_type,
         dra_type=inst["dra_type"],
@@ -73,15 +63,37 @@ async def _create_status(
         decision=eval_result["decision"],
         reason=eval_result.get("reason"),
         dependency_note=eval_result.get("dependency_note"),
-        dependency_request_id=eval_result.get("dependency_request_id"),
         impl_status=(
             ImplStatus.PENDING.value
             if eval_result["decision"] in ACTIONABLE_DECISIONS
-            else None  # FIX: SKIPPED entries should have NULL impl_status
+            else None
         ),
     )
     db.add(status)
     await db.flush()
+
+    relationships = eval_result.get("relationships", [])
+    seen_relationships = set()
+
+    for rel in relationships:
+        # Fixed: Enhanced composite tracking key prevents data loss across match variants
+        rel_key = (rel["request_id"], rel["type"], rel.get("relationship"))
+        if rel_key in seen_relationships:
+            continue
+        seen_relationships.add(rel_key)
+
+        db.add(
+            EntryInstanceRelationship(
+                instance_status_id=status.id,
+                related_request_id=rel["request_id"],
+                relationship_type=rel["type"],
+                relationship_match_type=rel.get("relationship"), 
+            )
+        )
+    
+    if relationships:
+        await db.flush()
+
     return status
 
 
@@ -91,21 +103,15 @@ async def process_ild_request(
     csv_path: str,
     selected_instances: list[dict],
 ):
-    """
-    Main ILD processing loop.
-    ``selected_instances`` is a list of dicts: [{dra_type, instance_label}, …]
-    """
     df = pd.read_csv(csv_path)
     rows = df.fillna("").to_dict(orient="records")
 
-    # FIX: was "IN_PROGRESS" which is not a valid status enum value
     request.status = RequestStatus.PROCESSING.value
     request.total_rows = len(rows)
     await db.flush()
 
     processed = skipped = failed = 0
 
-    # Pre-load contexts for all selected instances
     contexts: dict[str, InstanceContext] = {}
     for inst in selected_instances:
         key = f"{inst['dra_type']}|{inst['instance_label']}"
@@ -157,22 +163,22 @@ async def process_ild_request(
                 ctx = contexts[key]
 
                 # ── PRR evaluation ────────────────────────────────────────
-                # Scope filter: only manage rows where rule matches PRR scope
                 if _scope_prr(rule_raw):
                     prr_eval = await evaluate_prr_instance(ctx, row, request.id)
-                    prr_status = await _create_status(db, prr_entry.id, "PRR", inst, prr_eval)
+                    prr_status = await _create_status(db, request.id, prr_entry.id, "PRR", inst, prr_eval)
 
                     if prr_eval["decision"] in ACTIONABLE_DECISIONS:
                         row_skipped = False
 
-                        # FIX: was passing `realm` positional arg that doesn't exist
-                        inherited = await inherit_prr_config(
+                        inherited = await inherit_prr_template(
                             db, inst["dra_type"], inst["instance_label"], override=row
                         )
+                        
+                        final_rule_name = prr_eval.get("final_rule") or rule_raw
                         payload = {
                             **inherited,
                             "realm": realm_raw,
-                            "final_prt_rule": prr_eval.get("final_rule") or rule_raw,
+                            "final_prt_rule": final_rule_name,
                         }
 
                         detail = EntryInstanceDetail(
@@ -187,11 +193,23 @@ async def process_ild_request(
                         )
                         db.add(detail)
 
-                        # Update live context
+                        # Map out standardized action labels for context hydration
+                        mapped_action = row["ACTION"].upper()
+
+                        # Update live context maps for future batch iterations
                         rl = realm_raw.lower()
+                        if rl not in ctx.prr_pending_realms:
+                            ctx.prr_pending_realms[rl] = []
+                        
+                        ctx.prr_pending_realms[rl].append({
+                            "action": mapped_action,
+                            "request_id": request.id,
+                            "rule": final_rule_name.lower()
+                        })
+
                         if prr_eval["decision"] in ADD_DECISIONS:
                             ctx.prr_realms.add(rl)
-                            ctx.prr_rules.add(payload["final_prt_rule"].lower())
+                            ctx.prr_rules.add(final_rule_name.lower())
                         elif prr_eval["decision"] in DELETE_DECISIONS:
                             ctx.prr_realms.discard(rl)
                 else:
@@ -206,16 +224,13 @@ async def process_ild_request(
 
                 # ── RBAR evaluation ───────────────────────────────────────
                 if rbar_entry and start_addr is not None:
-                    # Scope filter: destination from row (not yet in dump, use RBAR_SCOPE_SUFFIXES)
-                    # For input CSV we treat all RBAR entries as in-scope (destination comes from dump)
                     rbar_eval = await evaluate_rbar_instance(ctx, start_addr, end_addr, action)
-                    rbar_status = await _create_status(db, rbar_entry.id, "RBAR", inst, rbar_eval)
+                    rbar_status = await _create_status(db, request.id, rbar_entry.id, "RBAR", inst, rbar_eval)
 
                     if rbar_eval["decision"] in ACTIONABLE_DECISIONS:
                         row_skipped = False
 
-                        # FIX: was passing start/end positional args that don't exist in signature
-                        inherited = await inherit_rbar_config(
+                        inherited = await inherit_rbar_template(
                             db, inst["dra_type"], inst["instance_label"], override=row
                         )
                         payload = {
@@ -237,60 +252,73 @@ async def process_ild_request(
                         )
                         db.add(detail)
 
-                        # Update live context
-                        rk = (start_addr, end_addr)
-                        if rbar_eval["decision"] in ADD_DECISIONS:
-                            if rk not in ctx.rbar_ranges:
-                                ctx.rbar_ranges.append(rk)
-                        elif rbar_eval["decision"] in DELETE_DECISIONS:
-                            ctx.rbar_ranges = [r for r in ctx.rbar_ranges if r != rk]
-                        elif rbar_eval["decision"] == DecisionType.SUPERSEDE.value:
-                            old = rbar_eval["replace"]
-                            ctx.rbar_ranges = [r for r in ctx.rbar_ranges if r != old]
-                            ctx.rbar_ranges.append(rk)
+                        start_i = int(start_addr)
+                        end_i = int(end_addr) + 1  
+                        
+                        mapped_action = row["ACTION"].upper()
+                        
+                        # Sync the RBAR pipeline tree structure
+                        ctx.rbar_pending_tree.add(Interval(
+                            start_i, end_i, {"action": mapped_action, "request_id": request.id}
+                        ))
 
-                            # Create a companion DELETE status for the superseded range
-                            del_eval = {
-                                "decision": DecisionType.DELETE.value,
-                                "reason": "Superseded by larger range",
-                            }
-                            del_status = await _create_status(
-                                db, rbar_entry.id, "RBAR", inst, del_eval
-                            )
-                            db.add(EntryInstanceDetail(
-                                instance_status_id=del_status.id,
-                                entry_id=rbar_entry.id,
-                                entry_type="RBAR",
-                                dra_type=inst["dra_type"],
-                                instance_label=inst["instance_label"],
-                                start_addr=old[0],
-                                end_addr=old[1],
-                                raw_payload={"start_addr": old[0], "end_addr": old[1],
-                                             "reason": "Superseded"},
-                            ))
+                        if rbar_eval["decision"] in ADD_DECISIONS:
+                            ctx.rbar_ranges.add(Interval(start_i, end_i))
+                            
+                        elif rbar_eval["decision"] in DELETE_DECISIONS:
+                            for iv in list(ctx.rbar_ranges.overlap(start_i, end_i)):
+                                if iv.begin == start_i and iv.end == end_i:
+                                    ctx.rbar_ranges.discard(iv)
+                                    
+                        elif rbar_eval["decision"] == DecisionType.SUPERSEDE.value:
+                            # Loop over the list of tuples returned by your updated RBAR module
+                            for old_start, old_end in rbar_eval.get("replace", []):
+                                old_start_i = int(old_start)
+                                old_end_i = int(old_end) + 1
+                                
+                                for iv in list(ctx.rbar_ranges.overlap(old_start_i, old_end_i)):
+                                    if iv.begin == old_start_i and iv.end == old_end_i:
+                                        ctx.rbar_ranges.discard(iv)
+
+                                del_status = await _create_status(
+                                    db, request.id, rbar_entry.id, "RBAR", inst, {
+                                        "decision": DecisionType.DELETE.value,
+                                        "reason": "Superseded by larger range",
+                                    }
+                                )
+                                db.add(EntryInstanceDetail(
+                                    instance_status_id=del_status.id,
+                                    entry_id=rbar_entry.id,
+                                    entry_type="RBAR",
+                                    dra_type=inst["dra_type"],
+                                    instance_label=inst["instance_label"],
+                                    start_addr=old_start,
+                                    end_addr=old_end,
+                                    raw_payload={"start_addr": old_start, "end_addr": old_end, "reason": "Superseded"},
+                                ))
+                            
+                            # Insert the newly updated wide master boundary range
+                            ctx.rbar_ranges.add(Interval(start_i, end_i))
 
             if row_skipped:
                 skipped += 1
             else:
                 processed += 1
 
-        except Exception as ex:   # FIX: was `except Exception:` but then referenced undefined `ex`
+        except Exception as ex:
             failed += 1
             logger.exception("Error processing row %d: %s", row_idx, ex)
             db.add(AuditLog(
                 request_id=request.id,
                 level="ERROR",
                 entry_type="ROW",
-                # FIX: AuditLog has no raw_payload column
                 message=f"Row {row_idx} error: {ex}",
             ))
 
-        # FIX: moved counter updates INSIDE the loop (was outside, only updated once)
         request.processed_rows = processed
         request.skipped_rows = skipped
         request.failed_rows = failed
 
-        # Publish SSE progress
         publish_event(request.id, {
             "type": "progress",
             "total": len(rows),
@@ -300,11 +328,12 @@ async def process_ild_request(
             "failed": failed,
         })
 
-    # FIX: was "COMPLETED" – not a valid RequestStatus value
-    request.status = (
-        RequestStatus.DONE_PARTIAL.value if failed else RequestStatus.DONE.value
-    )
+    # Fixed: Uses your actual database Enum layout limits 
+    request.status = RequestStatus.FAILED.value if failed > 0 else RequestStatus.COMPLETED.value
     request.completed_at = _ist_now()
+    
+    await db.flush()
+    await db.commit()
 
     publish_event(request.id, {
         "type": "done",

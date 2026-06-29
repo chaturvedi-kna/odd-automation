@@ -24,7 +24,7 @@ async def _get_latest_snapshot(db, dra_type: str, instance_label: str, obj_type:
     ).scalars().first()
 
 
-async def inherit_prr_config(
+async def inherit_prr_template(
     db,
     dra_type: str,
     instance_label: str,
@@ -54,7 +54,7 @@ async def inherit_prr_config(
     return dict(override or {})
 
 
-async def inherit_rbar_config(
+async def inherit_rbar_template(
     db,
     dra_type: str,
     instance_label: str,

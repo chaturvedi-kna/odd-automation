@@ -69,6 +69,7 @@ def upgrade() -> None:
     op.create_table(
         "entry_instance_statuses",
         sa.Column("id", sa.String(), primary_key=True),
+        sa.Column("request_id", sa.String(), sa.ForeignKey("change_requests.id"), nullable=False),
         sa.Column("entry_id", sa.String(), nullable=False),
         sa.Column("entry_type", sa.String(), nullable=False),   # PRR | RBAR
         sa.Column("dra_type", sa.String(), nullable=False),
@@ -90,6 +91,8 @@ def upgrade() -> None:
                     ["entry_type", "impl_status"])
     op.create_index("idx_instance_status_reconciled", "entry_instance_statuses",
                     ["last_reconciled_at"])
+    op.create_index("idx_instance_status_request", "entry_instance_statuses",
+                    ["request_id"])
 
     # ── entry_instance_details ─────────────────────────────────────────────
     op.create_table(

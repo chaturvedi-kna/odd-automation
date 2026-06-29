@@ -1,42 +1,38 @@
 import logging
+import re
 from app.models.enums import DecisionType
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
-def _make_renamed_rule(rule: str, ctx_prr_rules: set) -> str | None:
+def _make_renamed_rule(rule: str, unavailable_rules: set) -> str | None:
     """
-    Collision-safe PRR rule rename:
-      ild_dte_s6a → ild_dte2_s6a → ild_dte3_s6a …
-    Inserts an incrementing digit (starting at 2) directly before the last
-    underscore+suffix segment.  Returns None if the shortest candidate would
-    already exceed PRR_NAME_MAX_LEN (caller must SKIP + log).
+    Robust Suffix Management:
+    Isolates ending sequence counters using standard non-greedy matching.
     """
     max_len = settings.PRR_NAME_MAX_LEN
 
-    if "_" in rule:
-        parts = rule.rsplit("_", 1)
-        prefix = parts[0]   # e.g. "ILD_IRN11"
-        suffix = parts[1]   # e.g. "S6a"
+    # Cleaned regex: exactly one lazy modifier '.*?'
+    match = re.match(r"^(.*?)(\d+)$", rule)
+    
+    if match:
+        base = match.group(1)
+        counter = int(match.group(2))
     else:
-        prefix = rule
-        suffix = ""
+        base = rule
+        counter = 1
 
-    i = 2   # FIX: requirement says ild_dte_s6a → ild_dte2_s6a (starts at 2, no zfill)
     while True:
-        if suffix:
-            candidate = f"{prefix}{i}_{suffix}"
-        else:
-            candidate = f"{prefix}{i}"
+        counter += 1
+        candidate = f"{base}{counter}"
 
         if len(candidate) > max_len:
-            # Even smallest candidate is too long – caller must skip
+            logger.error("PRR Rename failed: candidate '%s' exceeds max length %d", candidate, max_len)
             return None
 
-        if candidate.lower() not in ctx_prr_rules:
+        if candidate.lower() not in unavailable_rules:
             return candidate
-        i += 1
 
 
 async def evaluate_prr_instance(ctx, row: dict, request_id: str) -> dict:
@@ -44,97 +40,93 @@ async def evaluate_prr_instance(ctx, row: dict, request_id: str) -> dict:
     rule = (row.get("PRT Rule") or "").strip().lower()
     action = (row.get("ACTION") or "ADD").upper()
 
-    # FIX: was ctx.pending_map; now ctx.prr_pending_map with proper dict structure
-    pending_info = ctx.prr_pending_map.get(realm)
+    if action not in {"ADD", "DELETE"}:
+        return {"decision": DecisionType.SKIPPED.value, "reason": f"Invalid action: {action}"}
 
-    # ── DEPENDENCY / DUPLICATE CHECK ──────────────────────────────────────
-    if pending_info:
-        prev_action = pending_info["action"]    # FIX: was pending_info["action"] on a tuple
-        dep_req = pending_info["request_id"]
+    if not realm:
+        return {"decision": DecisionType.SKIPPED.value, "reason": "Missing mandatory Realm parameter"}
+    
+    if action == "ADD" and not rule:
+        return {"decision": DecisionType.SKIPPED.value, "reason": "Missing mandatory PRT Rule parameter"}
 
-        if prev_action == "ADD" and action == "ADD":
-            logger.warning("PRR SKIP – duplicate pending ADD for realm %s", realm)
-            return {
-                "decision": DecisionType.SKIPPED.value,
-                "reason": "Duplicate pending ADD",
-            }
+    # ──────────────────────────────────────────────────────────────
+    # 1. Read Effective State Directly From Pre-Hydrated Context
+    # ──────────────────────────────────────────────────────────────
+    # Because context.py already replayed pending deltas into these sets,
+    # they represent the exact state the DB will be in after the current queue.
+    effective_realm_exists = realm in ctx.prr_realms
+    all_unavailable_rules = ctx.prr_rules
 
-        if prev_action == "DELETE" and action == "DELETE":
-            logger.warning("PRR SKIP – duplicate pending DELETE for realm %s", realm)
-            return {
-                "decision": DecisionType.SKIPPED.value,
-                "reason": "Duplicate pending DELETE",
-            }
+    # ──────────────────────────────────────────────────────────────
+    # 2. Collect All Chained Relationship Dependencies
+    # ──────────────────────────────────────────────────────────────
+    dependency_add_relationships = []
+    dependency_delete_relationships = []
+    
+    pending_items = ctx.prr_pending_realms.get(realm, [])
 
-        if prev_action == "ADD" and action == "DELETE":
-            logger.warning("PRR DEPENDENCY_DELETE – realm %s has pending ADD in %s", realm, dep_req)
-            return {
-                "decision": DecisionType.DEPENDENCY_DELETE.value,
-                "dependency_note": f"Pending ADD exists in request {dep_req}",
-                "dependency_request_id": dep_req,
-            }
+    for item in pending_items:
+        p_action = item["action"]
+        dep_req = item["request_id"]
 
-        if prev_action == "DELETE" and action == "ADD":
-            final_rule = rule
-            if rule in ctx.prr_rules:
-                final_rule = _make_renamed_rule(rule, ctx.prr_rules)
-                if final_rule is None:
-                    logger.error(
-                        "PRR SKIP – Name conflict: rename would exceed %d char limit. "
-                        "Manual intervention required. realm=%s rule=%s",
-                        settings.PRR_NAME_MAX_LEN, realm, rule,
-                    )
-                    return {
-                        "decision": DecisionType.SKIPPED.value,
-                        "reason": (
-                            f"Name conflict: rename would exceed {settings.PRR_NAME_MAX_LEN} "
-                            "char limit. Manual intervention required."
-                        ),
-                    }
-            return {
-                "decision": DecisionType.DEPENDENCY_ADD.value,
-                "final_rule": final_rule,
-                "dependency_note": f"Pending DELETE exists in request {dep_req}",
-                "dependency_request_id": dep_req,
-            }
+        # If a prior step is deleting this realm, a new ADD must wait for it
+        if p_action == "DELETE" and action == "ADD":
+            dependency_add_relationships.append({
+                "request_id": dep_req,
+                "type": DecisionType.DEPENDENCY_ADD.value
+            })
 
-    # ── ADD ───────────────────────────────────────────────────────────────
+        # If a prior step is adding this realm, a new DELETE must wait for it
+        elif p_action == "ADD" and action == "DELETE":
+            dependency_delete_relationships.append({
+                "request_id": dep_req,
+                "type": DecisionType.DEPENDENCY_DELETE.value
+            })
+
+    # ──────────────────────────────────────────────────────────────
+    # 3. Evaluate Action Against Effective State & Rules
+    # ──────────────────────────────────────────────────────────────
     if action == "ADD":
-        if realm in ctx.prr_realms:
-            logger.warning("PRR SKIP – realm already exists: %s", realm)
+        # Check for absolute duplicates based on the net-effective state
+        if effective_realm_exists:
             return {
                 "decision": DecisionType.SKIPPED.value,
-                "reason": "Realm already exists",
+                "reason": f"Duplicate ADD: Realm '{realm}' will already exist via snapshot or pending pipeline.",
             }
 
+        # Resolve naming collisions safely using our fixed lookup constraints
         final_rule = rule
-        if rule in ctx.prr_rules:
-            final_rule = _make_renamed_rule(rule, ctx.prr_rules)
+        if rule in all_unavailable_rules:
+            final_rule = _make_renamed_rule(rule, all_unavailable_rules)
             if final_rule is None:
-                logger.error(
-                    "PRR SKIP – Name conflict: rename would exceed %d char limit. "
-                    "Manual intervention required. realm=%s rule=%s",
-                    settings.PRR_NAME_MAX_LEN, realm, rule,
-                )
                 return {
                     "decision": DecisionType.SKIPPED.value,
-                    "reason": (
-                        f"Name conflict: rename would exceed {settings.PRR_NAME_MAX_LEN} "
-                        "char limit. Manual intervention required."
-                    ),
+                    "reason": f"Name conflict: rename exceeds {settings.PRR_NAME_MAX_LEN} chars.",
                 }
 
-        return {"decision": DecisionType.ADD.value, "final_rule": final_rule}
+        # If there are active dependencies in flight, pass the full array
+        if dependency_add_relationships:
+            return {
+                "decision": DecisionType.DEPENDENCY_ADD.value,
+                "final_rule": final_rule.lower(),
+                "dependency_note": "Dependent on pending pipeline deletions.",
+                "relationships": dependency_add_relationships,
+            }
 
-    # ── DELETE ────────────────────────────────────────────────────────────
-    if action == "DELETE":
-        if realm not in ctx.prr_realms:
-            logger.warning("PRR SKIP – realm not found for DELETE: %s", realm)
+        return {"decision": DecisionType.ADD.value, "final_rule": final_rule.lower()}
+
+    elif action == "DELETE":
+        if not effective_realm_exists:
             return {
                 "decision": DecisionType.SKIPPED.value,
-                "reason": "Realm not found",
+                "reason": f"Duplicate DELETE: Realm '{realm}' does not exist or is already deleted.",
             }
-        return {"decision": DecisionType.DELETE.value}
 
-    logger.warning("PRR SKIP – invalid action: %s", action)
-    return {"decision": DecisionType.SKIPPED.value, "reason": "Invalid action"}
+        if dependency_delete_relationships:
+            return {
+                "decision": DecisionType.DEPENDENCY_DELETE.value,
+                "dependency_note": "Dependent on pending pipeline additions.",
+                "relationships": dependency_delete_relationships,
+            }
+
+        return {"decision": DecisionType.DELETE.value}
