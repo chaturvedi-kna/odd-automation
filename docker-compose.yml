@@ -71,12 +71,14 @@ services:
     restart: unless-stopped
 
   # ── Celery worker ─────────────────────────────────────────────────────────
-  worker:
+  # ── Celery Heavy Worker (Long Running Operations Pool) ────────────────────
+  worker_heavy:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: odd_worker
-    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4
+    container_name: odd_worker_heavy
+    # Dedicated resources focused only on file ingestion and scheduled evaluations
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2 -Q processing,scheduler
     env_file: .env
     depends_on:
       api:
@@ -84,6 +86,22 @@ services:
     volumes:
       - dumps_incoming:/app/dumps/incoming
       - dumps_processed:/app/dumps/processed
+      - exports:/app/exports
+    restart: unless-stopped
+
+  # ── Celery Light Worker (Fast Telemetry Operations Pool) ───────────────────
+  worker_light:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: odd_worker_light
+    # Focused on instant real-time UI SSE broadcasts and quick excel generations
+    command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 -Q default,export,notifications
+    env_file: .env
+    depends_on:
+      api:
+        condition: service_healthy
+    volumes:
       - exports:/app/exports
     restart: unless-stopped
 
@@ -96,7 +114,8 @@ services:
     command: celery -A app.workers.celery_app beat --loglevel=info
     env_file: .env
     depends_on:
-      - worker
+      - worker_heavy
+      - worker_light
     restart: unless-stopped
 
   # ── Nginx + React frontend ────────────────────────────────────────────────
