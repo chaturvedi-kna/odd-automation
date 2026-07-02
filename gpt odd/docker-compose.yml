@@ -1,0 +1,88 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: odd_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: odd_redis
+    restart: always
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+
+  migrate:
+    build: ./backend
+    command: alembic upgrade head
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file: .env
+
+  api:
+    build: ./backend
+    container_name: odd_api
+    command: uvicorn app.main:app --host ${UVICORN_HOST} --port ${UVICORN_PORT}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    env_file: .env
+    volumes:
+      - dumps_incoming:/app/dumps/incoming
+      - dumps_processed:/app/dumps/processed
+      - exports_data:/app/exports
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      retries: 5
+
+  worker:
+    build: ./backend
+    container_name: odd_worker
+    command: celery -A app.workers.celery_app worker --loglevel=info
+    depends_on:
+      - api
+      - redis
+    env_file: .env
+    volumes:
+      - dumps_incoming:/app/dumps/incoming
+      - dumps_processed:/app/dumps/processed
+      - exports_data:/app/exports
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    container_name: odd_nginx
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+
+volumes:
+  db_data:
+  redis_data:
+  dumps_incoming:
+  dumps_processed:
+  exports_data:
