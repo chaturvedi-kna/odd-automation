@@ -77,6 +77,7 @@ def upgrade() -> None:
         sa.Column("decision", sa.String(), nullable=True),
         sa.Column("reason", sa.String(), nullable=True),
         sa.Column("impl_status", sa.String(), nullable=True),
+        sa.Column("dependency_note", sa.String(), nullable=True),
         sa.Column("last_reconciled_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

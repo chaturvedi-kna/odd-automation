@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_, func
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.entry_instance_status import EntryInstanceStatus
@@ -177,25 +177,15 @@ def run_reconciliation(db: Session, dra_type: str | None = None, instance_label:
 
             # ── Unknown entry detection ──────────────────
             if prr_snap:
-                existing_unknowns = db.execute(select(UnknownEntry.realm).where(UnknownEntry.snapshot_id == prr_snap.id)).scalars().all()
-                existing_set = {r.lower() for r in existing_unknowns if r}
-
-                unknowns = detect_unknown_prr(db, inst_dra, inst_label, prr_snap)
-                for u in unknowns:
-                    if u.realm and u.realm.lower() in existing_set:
-                        continue
-                    db.add(u)
-                    unknown_count += 1
+                # The detector now performs internal lookups and updates directly
+                new_prr_unknowns = sync_unknown_prr(db, inst_dra, inst_label, prr_snap)
+                unknown_count += new_prr_unknowns
 
             if rbar_snap:
-                unknowns = detect_unknown_rbar(db, inst_dra, inst_label, rbar_snap)
-                for u in unknowns:
-                    if db.execute(select(UnknownEntry).where(and_(UnknownEntry.snapshot_id == rbar_snap.id, UnknownEntry.start_addr == u.start_addr, UnknownEntry.end_addr == u.end_addr))).scalars().first():
-                        continue
-                    db.add(u)
-                    unknown_count += 1
+                new_rbar_unknowns = sync_unknown_rbar(db, inst_dra, inst_label, rbar_snap)
+                unknown_count += new_rbar_unknowns
 
-            db.flush()  # Push mutations to transaction staging area cleanly without calling commit yet
+            db.flush()
 
         except Exception as ex:
             logger.exception("Reconciliation block failure on cluster %s|%s: %s", inst_dra, inst_label, ex)

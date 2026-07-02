@@ -1,7 +1,7 @@
 import uuid
 from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.sql import func
-
+from sqlalchemy.orm import relationship
 from app.models.base import Base
 
 
@@ -10,7 +10,7 @@ class EntryInstanceStatus(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
 
-    request_id = Column(String, ForeignKey("change_requests.id"), nullable=False)
+    request_id = Column(String, ForeignKey("change_requests.id"), nullable=False, ondelete="CASCADE")
 
     entry_id = Column(String, nullable=False)
     entry_type = Column(String, nullable=False)
@@ -20,11 +20,14 @@ class EntryInstanceStatus(Base):
 
     decision = Column(String, nullable=True)   # ADD / DELETE / SKIPPED / SUPERSEDE / DEPENDENCY_*
     reason = Column(String, nullable=True)
+    dependency_note = Column(String, nullable=True)
 
     impl_status = Column(String, nullable=True)  # FIX: was nullable=False – SKIPPED entries have no impl_status
 
     last_reconciled_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    details = relationship("EntryInstanceDetail", backref="instance_status", lazy="raise")
 
     __table_args__ = (
         UniqueConstraint(

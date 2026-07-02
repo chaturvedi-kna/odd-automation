@@ -21,17 +21,19 @@ async def list_notifications(
     db: AsyncSession = Depends(get_db),
     _=Depends(get_current_user),
 ):
+    # Construct base executable query vectors
     query = select(Notification).order_by(Notification.created_at.desc())
+    count_query = select(func.count(Notification.id))
+    
+    # Dynamically apply conditional filters safely
     if unread_only:
         query = query.where(Notification.is_read == False)
+        count_query = count_query.where(Notification.is_read == False)
+
     query = query.offset((page - 1) * page_size).limit(page_size)
 
     items = (await db.execute(query)).scalars().all()
-    total = (await db.execute(
-        select(func.count(Notification.id)).where(
-            Notification.is_read == False if unread_only else True
-        )
-    )).scalar()
+    total = (await db.execute(count_query)).scalar()
 
     return {
         "total": total,
