@@ -7,7 +7,7 @@ set -e
 ############################################
 
 WORKDIR="$(pwd)"
-COMPOSE_FILE="${WORKDIR}/docker-compose.yaml"
+COMPOSE_FILE="${WORKDIR}/docker-compose.yml"
 
 PEER_SCRIPT="${WORKDIR}/daimeter_PeerRouteRule_clenaup.sh"
 ADDRESS_SCRIPT="${WORKDIR}/daimeter_Rbar_AddressRange_clenaup.sh"
