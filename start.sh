@@ -6,8 +6,8 @@ set -e
 # Configuration
 ############################################
 
-WORKDIR="/root/oddautomation"
-COMPOSE_FILE="${WORKDIR}/dockercompose.yaml"
+WORKDIR="$(pwd)"
+COMPOSE_FILE="${WORKDIR}/docker-compose.yaml"
 
 PEER_SCRIPT="${WORKDIR}/daimeter_PeerRouteRule_clenaup.sh"
 ADDRESS_SCRIPT="${WORKDIR}/daimeter_Rbar_AddressRange_clenaup.sh"
