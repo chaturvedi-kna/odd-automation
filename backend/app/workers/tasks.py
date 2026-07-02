@@ -167,18 +167,25 @@ def task_ingest_dump(
                     try:
                         if r.get("start_addr") is None or r.get("end_addr") is None:
                             raise ValueError("Snapshot record payload is missing boundary address coordinates values.")
-                            
+
+                        raw_pl = r.get("raw_payload") or {}
+                        # CRITICAL: int(float()) tolerates Excel scientific notation
+                        # (e.g. 4.0584E+14); values are stored as int / BigInteger only.
                         start_val = int(float(r["start_addr"]))
                         end_val = int(float(r["end_addr"]))
-                        old_start = int(float(r["old_start_addr"])) if r.get("old_start_addr") not in (None, "") else None
-                    except (ValueError, TypeError) as parse_ex:
+                        raw_old_start = raw_pl.get("oldStartAddr")
+                        old_start = (
+                            int(float(raw_old_start))
+                            if raw_old_start not in (None, "")
+                            else None
+                        )
+                    except (ValueError, TypeError, OverflowError) as parse_ex:
                         logger.warning(
                             "Data Corruption Skipped: Dropping malformed RBAR range entry row inside file %s. Reason: %s",
                             original_filename, parse_ex
                         )
                         continue
 
-                    raw_pl = r.get("raw_payload") or {}
                     db.add(RbarDumpRow(
                         snapshot_id=snapshot_id,
                         table_name=r.get("table_name") or raw_pl.get("tableName"),
@@ -237,3 +244,29 @@ def task_run_reconciliation(dra_type: str | None = None, instance_label: str | N
 
     logger.info("Scheduled batch reconciliation completed successfully. Results: %s", result)
     return result
+
+
+@celery_app.task(
+    name="app.workers.tasks.task_scan_incoming_dumps",
+    queue="processing"
+)
+def task_scan_incoming_dumps():
+    """
+    Scheduled scan of the configured dump source (folder on the VM today,
+    swappable via DUMP_SOURCE_TYPE). Every discovered file is dispatched to
+    task_ingest_dump; the snapshot dedup guard makes re-scans idempotent.
+    """
+    from app.modules.ild.dump_source import get_dump_source
+
+    source = get_dump_source()
+    dispatched = 0
+    for df in source.iter_files():
+        logger.info(
+            "Dump scan: dispatching %s for %s/%s",
+            df.filename, df.dra_type, df.instance_label,
+        )
+        task_ingest_dump.delay(df.path, df.dra_type, df.instance_label, df.filename)
+        dispatched += 1
+
+    logger.info("Dump source scan complete — %d file(s) dispatched for ingestion.", dispatched)
+    return {"dispatched": dispatched}

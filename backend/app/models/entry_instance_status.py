@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, String, DateTime, ForeignKey, Index
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from app.models.base import Base
@@ -10,7 +10,9 @@ class EntryInstanceStatus(Base):
 
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
 
-    request_id = Column(String, ForeignKey("change_requests.id"), nullable=False, ondelete="CASCADE")
+    request_id = Column(
+        String, ForeignKey("change_requests.id", ondelete="CASCADE"), nullable=False
+    )
 
     entry_id = Column(String, nullable=False)
     entry_type = Column(String, nullable=False)
@@ -30,10 +32,10 @@ class EntryInstanceStatus(Base):
     details = relationship("EntryInstanceDetail", backref="instance_status", lazy="raise")
 
     __table_args__ = (
-        UniqueConstraint(
-            "entry_id", "entry_type", "dra_type", "instance_label",
-            name="uq_entry_instance_status",
-        ),
+        # NOTE: former UniqueConstraint("entry_id","entry_type","dra_type","instance_label")
+        # was dropped (migration 0004): SUPERSEDE legitimately creates a second
+        # status row (implicit DELETE) for the same entry+instance.
+        Index("idx_instance_status_entry", "entry_id", "entry_type", "dra_type", "instance_label"),
         Index("idx_instance_status_lookup", "dra_type", "instance_label"),
         Index("idx_instance_status_impl", "entry_type", "impl_status"),
         Index("idx_instance_status_reconciled", "last_reconciled_at"),

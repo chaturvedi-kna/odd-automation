@@ -20,5 +20,4 @@ sqlalchemy-utils
 python-dotenv
 email-validator
 orjson
-zoneinfo; python_version < "3.9"
 intervaltree

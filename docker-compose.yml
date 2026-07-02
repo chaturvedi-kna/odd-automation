@@ -1,3 +1,14 @@
+# ODD Automation stack — podman-compatible, IPv6-enabled.
+#
+# Runs with either:
+#   podman-compose -f docker-compose.yml up -d
+#   podman compose  -f docker-compose.yml up -d   (podman ≥ 4.7 w/ compose provider)
+#   docker  compose -f docker-compose.yml up -d
+#
+# The odd_net network is dual-stack (IPv4 + IPv6 ULA subnet) so the stack works
+# on IPv6-only VMs as well as dual-stack hosts. All services listen on both
+# families (uvicorn binds "::", nginx listens on [::]:80 and 0.0.0.0:80).
+
 version: "3.9"
 
 services:
@@ -13,6 +24,8 @@ services:
       POSTGRES_DB:       ${POSTGRES_DB:-odd_automation}
     volumes:
       - db_data:/var/lib/postgresql/data
+    networks:
+      - odd_net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-odd}"]
       interval: 5s
@@ -24,8 +37,12 @@ services:
     image: redis:7-alpine
     container_name: odd_redis
     restart: unless-stopped
+    # Explicitly bind both stacks so the broker is reachable over IPv6
+    command: ["redis-server", "--bind", "0.0.0.0", "::", "--protected-mode", "no"]
     volumes:
       - redis_data:/data
+    networks:
+      - odd_net
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -39,6 +56,8 @@ services:
     container_name: odd_migrate
     command: alembic upgrade head
     env_file: .env
+    networks:
+      - odd_net
     depends_on:
       db:
         condition: service_healthy
@@ -50,8 +69,11 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: odd_api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    # host "::" binds dual-stack (IPv6 + IPv4-mapped) on Linux
+    command: uvicorn app.main:app --host "::" --port 8000 --workers 2
     env_file: .env
+    networks:
+      - odd_net
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -61,25 +83,27 @@ services:
       - dumps_incoming:/app/dumps/incoming
       - dumps_processed:/app/dumps/processed
       - exports:/app/exports
+      - uploads:/app/uploads
     ports:
       - "8000:8000"       # direct access during development
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # try IPv4 loopback first, fall back to IPv6 loopback
+      test: ["CMD-SHELL", "curl -fs http://127.0.0.1:8000/health || curl -fs http://[::1]:8000/health"]
       interval: 10s
       timeout: 5s
       retries: 6
     restart: unless-stopped
 
-  # ── Celery worker ─────────────────────────────────────────────────────────
-  # ── Celery Heavy Worker (Long Running Operations Pool) ────────────────────
+  # ── Celery Heavy Worker (file ingestion + scheduled evaluations) ──────────
   worker_heavy:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: odd_worker_heavy
-    # Dedicated resources focused only on file ingestion and scheduled evaluations
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=2 -Q processing,scheduler
     env_file: .env
+    networks:
+      - odd_net
     depends_on:
       api:
         condition: service_healthy
@@ -87,22 +111,25 @@ services:
       - dumps_incoming:/app/dumps/incoming
       - dumps_processed:/app/dumps/processed
       - exports:/app/exports
+      - uploads:/app/uploads
     restart: unless-stopped
 
-  # ── Celery Light Worker (Fast Telemetry Operations Pool) ───────────────────
+  # ── Celery Light Worker (SSE broadcasts + quick excel generation) ─────────
   worker_light:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: odd_worker_light
-    # Focused on instant real-time UI SSE broadcasts and quick excel generations
     command: celery -A app.workers.celery_app worker --loglevel=info --concurrency=4 -Q default,export,notifications
     env_file: .env
+    networks:
+      - odd_net
     depends_on:
       api:
         condition: service_healthy
     volumes:
       - exports:/app/exports
+      - uploads:/app/uploads
     restart: unless-stopped
 
   # ── Celery beat (scheduler) ───────────────────────────────────────────────
@@ -113,6 +140,8 @@ services:
     container_name: odd_beat
     command: celery -A app.workers.celery_app beat --loglevel=info
     env_file: .env
+    networks:
+      - odd_net
     depends_on:
       - worker_heavy
       - worker_light
@@ -124,6 +153,8 @@ services:
       context: .
       dockerfile: nginx/Dockerfile
     container_name: odd_nginx
+    networks:
+      - odd_net
     ports:
       - "80:80"
     depends_on:
@@ -131,9 +162,23 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+# ── IPv6-enabled network (podman netavark & docker both support this) ───────
+networks:
+  odd_net:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      driver: default
+      config:
+        - subnet: 10.89.10.0/24
+          gateway: 10.89.10.1
+        - subnet: fd0d:0dd0:cafe::/64
+          gateway: fd0d:0dd0:cafe::1
+
 volumes:
   db_data:
   redis_data:
   dumps_incoming:
   dumps_processed:
   exports:
+  uploads:

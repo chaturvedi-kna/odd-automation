@@ -1,9 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
+
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from app.db.deps import get_db
-from app.models.change_request import ChangeRequest
 from app.api.deps.auth import require_operator
 
 router = APIRouter(prefix="/requests", tags=["rollback"])
@@ -16,24 +15,22 @@ async def rollback_request(
     current_user=Depends(require_operator),
 ):
     """
-    Create a rollback ChangeRequest that inverts all IMPLEMENTED entries
-    from the given completed request.
+    Cancel/rollback a request that has not been fully implemented yet:
+    all PENDING / AWAITING_IMPLEMENTATION entries are cancelled and their
+    dependency relationships purged.
     """
-    from app.modules.ild.rollback import create_rollback_request
+    from app.modules.ild.rollback import rollback_pending_request
 
     try:
-        rollback_req = await create_rollback_request(
+        original = await rollback_pending_request(
             db=db,
             original_request_id=request_id,
             requested_by_user_id=current_user.id,
         )
-        await db.commit()
         return {
-            "rollback_request_id": rollback_req.id,
             "original_request_id": request_id,
-            "status": rollback_req.status,
-            "entries_queued": rollback_req.processed_rows,
-            "entries_skipped": rollback_req.skipped_rows,
+            "status": original.status,
+            "message": "Request cancelled; pending entries purged from the queue.",
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

@@ -117,7 +117,8 @@ def _unpack_rbar_vals(d: EntryInstanceDetail) -> list:
         int(d.start_addr) if d.start_addr is not None else None,
         int(d.end_addr) if d.end_addr is not None else None,
         d.destination or "", p.get("pfxLength", ""), p.get("oldTableName", ""),
-        int(p["oldStartAddr"]) if p.get("oldStartAddr") not in ("", None) else None,
+        # int(float()) tolerates Excel scientific notation like 4.0584E+14
+        int(float(p["oldStartAddr"])) if p.get("oldStartAddr") not in ("", None) else None,
         p.get("oldPfxLength", "")
     ]
 
@@ -231,13 +232,23 @@ def master_odd_excel(db: Session, dra_type: str, instance_label: str, out_path: 
     if prr_snap:
         rows = db.execute(select(PrrDumpRow).where(PrrDumpRow.snapshot_id == prr_snap.id)).scalars().all()
         for r in rows:
+            # Full dump line lives in raw_payload (only key columns are promoted
+            # to real DB columns) — rebuild the row from the original payload.
+            p = r.raw_payload or {}
             base_prr_rows.append({
                 "vals": [
-                    "Diameter", "PeerRouteRule", r.name, r.priority, r.param_1, r.cond_operator_1, r.value_1,
-                    r.param_2, r.cond_operator_2, r.value_2, r.param_3, r.cond_operator_3, r.value_3, r.param_4,
-                    r.cond_operator_4, r.value_4, r.param_5, r.cond_operator_5, r.value_5, r.param_6, r.cond_operator_6,
-                    r.value_6, r.action, r.route_list_name, r.diam_ans_code, r.error_message, r.msg_priority,
-                    r.msg_cpy_cfg_set, r.vendor_id, r.target_prt_name, r.peer_route_table
+                    p.get("Application Name", "Diameter"), p.get("Screen Name", "PeerRouteRule"),
+                    r.name, p.get("priority", ""),
+                    p.get("param_1", ""), p.get("condOperator_1", ""), p.get("value_1", ""),
+                    p.get("param_2", ""), p.get("condOperator_2", ""), p.get("value_2", ""),
+                    p.get("param_3", ""), p.get("condOperator_3", ""), p.get("value_3", ""),
+                    p.get("param_4", ""), p.get("condOperator_4", ""), p.get("value_4", ""),
+                    p.get("param_5", ""), p.get("condOperator_5", ""), p.get("value_5", ""),
+                    p.get("param_6", ""), p.get("condOperator_6", ""), p.get("value_6", ""),
+                    p.get("action", ""), r.route_list_name or p.get("routeListName", ""),
+                    p.get("diamAnsCode", ""), p.get("errorMessage", ""), p.get("msgPriority", ""),
+                    p.get("msgCpyCfgSet", ""), p.get("vendorId", ""), p.get("targetPrtName", ""),
+                    r.peer_route_table or p.get("peerRouteTable", "")
                 ],
                 "realm_key": (r.realm or "").lower(), "meta_source": "DUMP"
             })

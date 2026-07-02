@@ -51,15 +51,34 @@ export default function DumpsPage() {
     },
   })
 
+  const scan = useMutation({
+    mutationFn: () => api.post('/dumps/scan'),
+    onSuccess: () => setTimeout(() => refetchSnaps(), 2000),
+  })
+
   const draTypes = [...new Set(instances.map(i => i.dra_type))].sort()
   const labelsForType = instances.filter(i => i.dra_type === draType).map(i => i.instance_label).sort()
 
   return (
     <div className="space-y-6 pb-10">
-      <div>
-        <h1 className="text-xl font-bold text-white">Dump Management</h1>
-        <p className="text-sm text-gray-400 mt-1">Ingest DRA system dumps for reconciliation.</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-white">Dump Management</h1>
+          <p className="text-sm text-gray-400 mt-1">Ingest DRA system dumps for reconciliation.</p>
+        </div>
+        <button
+          onClick={() => scan.mutate()}
+          disabled={scan.isPending}
+          title="Scan the configured dump source folder on the VM for new files"
+          className="flex items-center gap-2 px-4 py-2 rounded-lg border border-sky-600/50 bg-sky-600/10 hover:bg-sky-600/20 text-sky-300 text-sm font-medium disabled:opacity-40 transition-all"
+        >
+          <RefreshCw size={14} className={scan.isPending ? 'animate-spin' : ''} />
+          {scan.isPending ? 'Scanning…' : 'Scan Dump Source'}
+        </button>
       </div>
+      {scan.isSuccess && (
+        <p className="text-xs text-green-400">✓ Dump source scan queued — new files will appear under snapshots.</p>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Upload form */}

@@ -21,8 +21,8 @@ from app.core.config import settings
 
 router = APIRouter(prefix="/requests", tags=["requests"])
 
-UPLOAD_DIR = Path("/tmp/odd_uploads")
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+# Config-driven upload path (never hardcode paths); created lazily on first use
+UPLOAD_DIR = Path(settings.UPLOAD_PATH)
 
 
 @router.post("/")
@@ -41,8 +41,15 @@ async def create_request(
     if not instances:
         raise HTTPException(400, "At least one instance must be selected")
 
+    for inst in instances:
+        if not isinstance(inst, dict) or "dra_type" not in inst or "instance_label" not in inst:
+            raise HTTPException(
+                400, "Each selected instance must contain dra_type and instance_label"
+            )
+
     request_id = str(uuid.uuid4())
     csv_filename = f"{request_id}_{file.filename}"
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     csv_path = UPLOAD_DIR / csv_filename
 
     # Save uploaded file
@@ -64,8 +71,8 @@ async def create_request(
     await db.commit()
 
     # Dispatch Celery task
-    from app.workers.tasks import process_request
-    process_request.delay(request_id, str(csv_path), instances)
+    from app.workers.tasks import task_process_request
+    task_process_request.delay(request_id, str(csv_path), instances)
 
     return {
         "id": request_id,

@@ -13,7 +13,7 @@ from app.models.enums import ImplStatus, DecisionType
 from app.models.prr_dump_row import PrrDumpRow
 from app.models.rbar_dump_row import RbarDumpRow
 from app.models.dump_snapshot import DumpSnapshot
-from app.modules.ild.unknown_detector import detect_unknown_prr, detect_unknown_rbar
+from app.modules.ild.unknown_detector import sync_unknown_prr, sync_unknown_rbar
 
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
@@ -109,7 +109,7 @@ def run_reconciliation(db: Session, dra_type: str | None = None, instance_label:
 
     statuses = db.execute(
         select(EntryInstanceStatus).options(joinedload(EntryInstanceStatus.details)).where(and_(*filters))
-    ).scalars().all()
+    ).unique().scalars().all()
 
     by_instance: dict[tuple, list] = {}
     for s in statuses:

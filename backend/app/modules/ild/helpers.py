@@ -1,8 +1,35 @@
 """
 Helpers shared across ILD modules.
+
+Scope filtering (single source of truth — do NOT reimplement elsewhere):
+* PRR  : rule NAME **contains** any of PRR_SCOPE_SUFFIXES  (case-insensitive)
+* RBAR : DESTINATION **ends with** any of RBAR_SCOPE_SUFFIXES (case-insensitive)
+Out-of-scope rows are passed through / skipped silently (no log, no DB record).
 """
 
 from decimal import Decimal, InvalidOperation
+
+from app.core.config import settings
+
+
+def _suffixes(raw: str) -> list[str]:
+    return [s.strip().lower() for s in raw.split(",") if s.strip()]
+
+
+def in_prr_scope(name: str | None) -> bool:
+    """True when the PRR rule name CONTAINS any configured suffix."""
+    nl = (name or "").lower()
+    if not nl:
+        return False
+    return any(suf in nl for suf in _suffixes(settings.PRR_SCOPE_SUFFIXES))
+
+
+def in_rbar_scope(destination: str | None) -> bool:
+    """True when the RBAR destination ENDS WITH any configured suffix."""
+    dl = (destination or "").lower()
+    if not dl:
+        return False
+    return any(dl.endswith(suf) for suf in _suffixes(settings.RBAR_SCOPE_SUFFIXES))
 
 
 def _parse_number(value: str) -> int:

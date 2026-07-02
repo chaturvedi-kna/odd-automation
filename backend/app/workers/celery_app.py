@@ -84,6 +84,7 @@ celery_app.conf.update(
     task_routes={
         "app.workers.tasks.task_process_request": {"queue": "processing"},
         "app.workers.tasks.task_ingest_dump": {"queue": "processing"},
+        "app.workers.tasks.task_scan_incoming_dumps": {"queue": "processing"},
         "app.workers.tasks.task_run_reconciliation": {"queue": "scheduler"},
         "app.workers.tasks.task_export_excel": {"queue": "export"},
         "app.workers.tasks.task_dispatch_notifications": {"queue": "notifications"},
@@ -99,15 +100,22 @@ if celery_app.conf.timezone != TARGET_TIMEZONE:
 logger.info("Celery engine successfully synchronized with timezone: %s", celery_app.conf.timezone)
 
 
-# Configuration-Driven Beat Schedule Definition Matrix
+# ── Configuration-driven beat schedule ────────────────────────────────────────
+# RECON_CRON_TIME   : single HH:MM slot for nightly reconciliation
+# DUMP_INGEST_TIMES : comma-separated HH:MM slots for scanning the dump source
 BEAT_SCHEDULE = {
-    "reconcile-dump-slot-one": {
+    "nightly-reconciliation": {
         "task": "app.workers.tasks.task_run_reconciliation",
-        "schedule": _cron_from_str(getattr(settings, "RECON_SLOT_ONE", "01:05")),
-    },
-    "reconcile-dump-slot-two": {
-        "task": "app.workers.tasks.task_run_reconciliation",
-        "schedule": _cron_from_str(getattr(settings, "RECON_SLOT_TWO", "04:20")),
+        "schedule": _cron_from_str(settings.RECON_CRON_TIME),
     },
 }
+
+for _idx, _slot in enumerate(
+    (t.strip() for t in settings.DUMP_INGEST_TIMES.split(",") if t.strip()), start=1
+):
+    BEAT_SCHEDULE[f"dump-ingest-slot-{_idx}"] = {
+        "task": "app.workers.tasks.task_scan_incoming_dumps",
+        "schedule": _cron_from_str(_slot),
+    }
+
 celery_app.conf.beat_schedule = BEAT_SCHEDULE

@@ -14,9 +14,13 @@ class RbarDumpRow(Base):
     snapshot_id = Column(String, ForeignKey("dump_snapshots.id"), nullable=False)
 
     table_name = Column(String, nullable=True)
-    start_addr = Column(BigInteger, nullable=True)
-    end_addr = Column(BigInteger, nullable=True)
+    start_addr = Column(BigInteger, nullable=True)   # ALWAYS int — parsed via int(float()); never stored as float
+    end_addr = Column(BigInteger, nullable=True)     # ALWAYS int — parsed via int(float()); never stored as float
     destination = Column(String, nullable=True)
+    pfx_length = Column(String, nullable=True)
+    old_table_name = Column(String, nullable=True)
+    old_start_addr = Column(BigInteger, nullable=True)
+    old_pfx_length = Column(String, nullable=True)
 
     raw_payload = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

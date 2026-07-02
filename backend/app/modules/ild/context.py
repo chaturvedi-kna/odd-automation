@@ -133,7 +133,7 @@ class InstanceContext:
             )
         ).all()
 
-        for status, detail, entry in prr_pending_rows:
+        for status, detail in prr_pending_rows:
             if not detail.realm:
                 continue
             
@@ -184,7 +184,7 @@ class InstanceContext:
             )
         ).all()
 
-        for status, detail, entry in rbar_pending_rows:
+        for status, detail in rbar_pending_rows:
             if detail.start_addr is None or detail.end_addr is None:
                 continue
             

@@ -101,9 +101,12 @@ def upgrade() -> None:
         op.bulk_insert(
             sa.table(
                 "dra_instances",
-                sa.column("id"), sa.column("dra_type"), sa.column("site"),
-                sa.column("category"), sa.column("category_abbrev"),
-                sa.column("instance_label"), sa.column("is_active"),
+                # Explicit types keep offline (--sql) migration mode working
+                sa.column("id", sa.String()), sa.column("dra_type", sa.String()),
+                sa.column("site", sa.String()), sa.column("category", sa.String()),
+                sa.column("category_abbrev", sa.String()),
+                sa.column("instance_label", sa.String()),
+                sa.column("is_active", sa.Boolean()),
             ),
             all_instances,
         )

@@ -6,6 +6,7 @@ from .prr_entry import PrrEntry
 from .rbar_entry import RbarEntry
 from .entry_instance_status import EntryInstanceStatus
 from .entry_instance_detail import EntryInstanceDetail
+from .entry_instance_relationship import EntryInstanceRelationship
 from .dump_snapshot import DumpSnapshot
 from .prr_dump_row import PrrDumpRow
 from .rbar_dump_row import RbarDumpRow
@@ -23,6 +24,7 @@ __all__ = [
     "RbarEntry",
     "EntryInstanceStatus",
     "EntryInstanceDetail",
+    "EntryInstanceRelationship",
     "DumpSnapshot",
     "PrrDumpRow",
     "RbarDumpRow",

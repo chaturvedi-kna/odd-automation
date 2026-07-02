@@ -42,14 +42,12 @@ async def rollback_pending_request(
         if not original:
             raise ValueError(f"Request {original_request_id} not found")
 
-        if original.status in (
-            RequestStatus.COMPLETED.value,
-            RequestStatus.FAILED.value,
-            RequestStatus.ROLLEDBACK.value
-        ):
+        # COMPLETED requests remain eligible: their entries stay
+        # PENDING FOR RECONCILIATION until the DRA dump confirms them, and
+        # cancelling before implementation is exactly this feature's purpose.
+        if original.status == RequestStatus.ROLLEDBACK.value:
             raise ValueError(
-                f"Cannot abort request {original_request_id[:8]} because it is already in a terminal "
-                f"'{original.status}' state."
+                f"Request {original_request_id[:8]} has already been rolled back."
             )
 
         # ── 2. GUARDRAIL: Verify Active Downstream Dependents Only ─────────

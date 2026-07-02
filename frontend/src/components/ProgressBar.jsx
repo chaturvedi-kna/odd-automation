@@ -42,7 +42,7 @@ export default function ProgressBar({ requestId, onDone }) {
 
   const pct = state.total > 0 ? Math.round((state.processed / state.total) * 100) : 0
   const done = state.done
-  const statusColor = state.status === 'DONE' ? 'text-green-400' : state.status === 'DONE_PARTIAL' ? 'text-yellow-400' : 'text-sky-400'
+  const statusColor = state.status === 'COMPLETED' ? 'text-green-400' : state.status === 'FAILED' ? 'text-red-400' : 'text-sky-400'
 
   return (
     <div className="space-y-3">

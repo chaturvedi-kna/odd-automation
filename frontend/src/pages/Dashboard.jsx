@@ -2,28 +2,30 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import api from '../api/client'
 import { CheckCircle2, Clock, XCircle, AlertTriangle, Plus, RefreshCw } from 'lucide-react'
+import { defaultModule } from '../modules/registry'
 
 const STATUS_COLORS = {
-  DONE: 'bg-green-100 text-green-700',
-  DONE_PARTIAL: 'bg-yellow-100 text-yellow-700',
-  FAILED: 'bg-red-100 text-red-700',
-  PROCESSING: 'bg-blue-100 text-blue-700',
-  QUEUED: 'bg-gray-100 text-gray-700',
+  COMPLETED:  'bg-green-500/20 text-green-300',
+  FAILED:     'bg-red-500/20 text-red-300',
+  PROCESSING: 'bg-blue-500/20 text-blue-300',
+  QUEUED:     'bg-gray-700 text-gray-300',
+  ROLLEDBACK: 'bg-orange-500/20 text-orange-300',
 }
 
-function StatCard({ label, value, color, icon: Icon }) {
+function StatCard({ label, value, color, icon: Icon, onClick }) {
   return (
-    <div className={`bg-white rounded-xl border border-gray-100 p-5 shadow-sm`}>
+    <button
+      onClick={onClick}
+      className="bg-gray-800/50 rounded-xl border border-gray-700 p-5 text-left hover:border-gray-600 transition-all"
+    >
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-gray-500 mb-1">{label}</p>
-          <p className={`text-3xl font-bold ${color}`}>{value ?? '—'}</p>
+          <p className="text-sm text-gray-400 mb-1">{label}</p>
+          <p className={`text-3xl font-bold font-mono ${color}`}>{value ?? '—'}</p>
         </div>
-        <div className={`p-3 rounded-xl ${color.replace('text-', 'bg-').replace('-600', '-100').replace('-700', '-100')}`}>
-          <Icon size={24} className={color} />
-        </div>
+        <Icon size={24} className={color} />
       </div>
-    </div>
+    </button>
   )
 }
 
@@ -38,19 +40,19 @@ export default function Dashboard() {
   const sc = data?.status_counts || {}
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-10">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Dashboard</h2>
-          <p className="text-sm text-gray-500">System overview and recent activity</p>
+          <h1 className="text-xl font-bold text-white">Dashboard</h1>
+          <p className="text-sm text-gray-400 mt-1">System overview and recent activity</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => refetch()} className="flex items-center gap-2 text-sm text-gray-600 hover:text-gray-900 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50">
-            <RefreshCw size={16} /> Refresh
+          <button onClick={() => refetch()} className="flex items-center gap-2 text-sm text-gray-300 px-3 py-2 rounded-lg border border-gray-700 hover:bg-gray-800">
+            <RefreshCw size={15} /> Refresh
           </button>
           <button
-            onClick={() => navigate('/requests/new')}
-            className="flex items-center gap-2 bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+            onClick={() => navigate(`/requests/new/${defaultModule().id.toLowerCase()}`)}
+            className="flex items-center gap-2 bg-sky-600 hover:bg-sky-500 text-white px-4 py-2 rounded-lg text-sm font-semibold"
           >
             <Plus size={16} /> New Request
           </button>
@@ -59,54 +61,62 @@ export default function Dashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Total Requests" value={data?.total_requests} color="text-brand-600" icon={CheckCircle2} />
-        <StatCard label="Pending Implementation" value={data?.pending_implementation} color="text-yellow-600" icon={Clock} />
-        <StatCard label="Not Implemented" value={data?.AWAITING_IMPLEMENTATION} color="text-red-600" icon={XCircle} />
-        <StatCard label="Unknown Entries" value={data?.unknown_entries} color="text-amber-600" icon={AlertTriangle} />
+        <StatCard label="Total Requests" value={data?.total_requests} color="text-sky-400" icon={CheckCircle2} onClick={() => navigate('/requests')} />
+        <StatCard label="Pending Implementation" value={data?.pending_implementation} color="text-yellow-400" icon={Clock} onClick={() => navigate('/requests')} />
+        <StatCard label="Awaiting Implementation" value={data?.AWAITING_IMPLEMENTATION} color="text-red-400" icon={XCircle} onClick={() => navigate('/requests')} />
+        <StatCard label="Unknown Entries" value={data?.unknown_entries} color="text-amber-400" icon={AlertTriangle} onClick={() => navigate('/unknown-entries')} />
       </div>
 
       {/* Status breakdown */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         {Object.entries(sc).map(([s, v]) => (
-          <div key={s} className="bg-white rounded-lg border border-gray-100 p-3 text-center shadow-sm">
-            <p className={`inline-block px-2 py-0.5 rounded text-xs font-semibold mb-1 ${STATUS_COLORS[s] || 'bg-gray-100 text-gray-600'}`}>{s}</p>
-            <p className="text-2xl font-bold text-gray-800">{v}</p>
+          <div key={s} className="bg-gray-800/50 rounded-lg border border-gray-700 p-3 text-center">
+            <p className={`inline-block px-2 py-0.5 rounded text-xs font-semibold mb-1 ${STATUS_COLORS[s] || 'bg-gray-700 text-gray-300'}`}>{s}</p>
+            <p className="text-2xl font-bold font-mono text-gray-200">{v}</p>
           </div>
         ))}
       </div>
 
       {/* Recent requests */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
-        <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="font-semibold text-gray-800">Recent Requests</h3>
+      <section className="rounded-xl border border-gray-700 bg-gray-800/40 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-700 flex items-center justify-between">
+          <span className="text-sm font-semibold text-gray-200">Recent Requests</span>
+          <button onClick={() => navigate('/requests')} className="text-xs text-sky-400 hover:text-sky-300">
+            View all →
+          </button>
         </div>
-        <div className="divide-y divide-gray-50">
-          {isLoading && (
-            <div className="py-10 text-center text-gray-400 text-sm">Loading…</div>
-          )}
-          {!isLoading && (!data?.recent_requests?.length) && (
-            <div className="py-10 text-center text-gray-400 text-sm">No requests yet. <button className="text-brand-600 underline" onClick={() => navigate('/requests/new')}>Create one</button></div>
+        <div className="divide-y divide-gray-700/40">
+          {isLoading && <div className="py-10 text-center text-gray-500 text-sm">Loading…</div>}
+          {!isLoading && !data?.recent_requests?.length && (
+            <div className="py-10 text-center text-gray-500 text-sm">
+              No requests yet.{' '}
+              <button className="text-sky-400 underline" onClick={() => navigate(`/requests/new/${defaultModule().id.toLowerCase()}`)}>
+                Create one
+              </button>
+            </div>
           )}
           {data?.recent_requests?.map(r => (
             <div
               key={r.id}
               onClick={() => navigate(`/requests/${r.id}`)}
-              className="flex items-center gap-4 px-5 py-3 hover:bg-gray-50 cursor-pointer transition-colors"
+              className="flex items-center gap-4 px-5 py-3 hover:bg-gray-700/20 cursor-pointer transition-colors"
             >
-              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[r.status] || 'bg-gray-100'}`}>
+              <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${STATUS_COLORS[r.status] || 'bg-gray-700 text-gray-300'}`}>
                 {r.status}
               </span>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-800 truncate">{r.uploaded_file_name || r.id}</p>
-                <p className="text-xs text-gray-400">{r.created_at ? new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''} IST</p>
+                <p className="text-sm font-medium text-gray-200 truncate">{r.uploaded_file_name || r.id}</p>
+                <p className="text-xs text-gray-500">
+                  {r.created_at ? new Date(r.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : ''} IST
+                </p>
               </div>
-              <div className="text-xs text-gray-500 text-right">
-                <p>{r.processed_rows ?? 0} / {r.total_rows ?? 0} rows</p>
+              <div className="text-xs text-gray-500 text-right font-mono">
+                {r.processed_rows ?? 0} / {r.total_rows ?? 0} rows
               </div>
             </div>
           ))}
         </div>
-      </div>
+      </section>
     </div>
   )
 }

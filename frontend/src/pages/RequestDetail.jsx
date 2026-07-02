@@ -13,6 +13,7 @@ const DECISION_STYLES = {
   DEPENDENCY_ADD:     'bg-blue-500/15 text-blue-300 border-blue-500/30',
   DEPENDENCY_DELETE:  'bg-orange-500/15 text-orange-300 border-orange-500/30',
   SUPERSEDE:          'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  SUPERSEDE_PENDING:  'bg-purple-500/10 text-purple-300/80 border-purple-500/20',
   SKIPPED:            'bg-gray-700/40 text-gray-400 border-gray-600',
 }
 
@@ -23,11 +24,11 @@ const IMPL_STYLES = {
 }
 
 const STATUS_BADGE = {
-  DONE:         'bg-green-500/20 text-green-300',
-  DONE_PARTIAL: 'bg-yellow-500/20 text-yellow-300',
-  FAILED:       'bg-red-500/20 text-red-300',
-  PROCESSING:   'bg-blue-500/20 text-blue-300 animate-pulse',
-  QUEUED:       'bg-gray-700 text-gray-300',
+  COMPLETED:  'bg-green-500/20 text-green-300',
+  FAILED:     'bg-red-500/20 text-red-300',
+  PROCESSING: 'bg-blue-500/20 text-blue-300 animate-pulse',
+  QUEUED:     'bg-gray-700 text-gray-300',
+  ROLLEDBACK: 'bg-orange-500/20 text-orange-300',
 }
 
 function Badge({ cls, children }) {
@@ -57,9 +58,9 @@ export default function RequestDetail() {
 
   const rollback = useMutation({
     mutationFn: () => api.post(`/requests/${id}/rollback`),
-    onSuccess: (r) => {
-      qc.invalidateQueries(['request', id])
-      nav(`/requests/${r.data.rollback_request_id}`)
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['request', id] })
+      refetch()
     },
   })
 
@@ -78,7 +79,9 @@ export default function RequestDetail() {
   const uniqueInstances = [...new Set(statuses.map(s => s.instance_label))].sort()
   const uniqueDecisions = [...new Set(statuses.map(s => s.decision))]
 
-  const canRollback = req.status === 'DONE' || req.status === 'DONE_PARTIAL'
+  // Rollback = cancel entries still awaiting implementation on the DRA;
+  // only fully rolled-back requests are excluded.
+  const canRollback = req.status !== 'ROLLEDBACK'
 
   return (
     <div className="space-y-6 pb-10">
@@ -107,7 +110,7 @@ export default function RequestDetail() {
           </a>
           {canRollback && (
             <button
-              onClick={() => { if (confirm('Create rollback request for all IMPLEMENTED entries?')) rollback.mutate() }}
+              onClick={() => { if (confirm('Cancel all entries of this request that are still pending / awaiting implementation?')) rollback.mutate() }}
               disabled={rollback.isPending}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-orange-600/50 bg-orange-600/10 hover:bg-orange-600/20 text-orange-300 text-sm disabled:opacity-40"
             >
@@ -116,6 +119,12 @@ export default function RequestDetail() {
           )}
         </div>
       </div>
+
+      {rollback.isError && (
+        <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-2">
+          {rollback.error?.response?.data?.detail ?? 'Rollback failed'}
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-3">

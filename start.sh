@@ -92,19 +92,39 @@ setup_cron() {
 # Docker Commands
 ############################################
 
+# Detect the available compose engine: podman-compose → podman compose → docker compose
+compose_cmd() {
+    if command -v podman-compose >/dev/null 2>&1; then
+        echo "podman-compose"
+    elif command -v podman >/dev/null 2>&1 && podman compose version >/dev/null 2>&1; then
+        echo "podman compose"
+    elif command -v docker >/dev/null 2>&1; then
+        echo "docker compose"
+    else
+        echo ""
+    fi
+}
+
+COMPOSE="$(compose_cmd)"
+if [ -z "${COMPOSE}" ]; then
+    echo "ERROR: no compose engine found (install podman-compose, podman >= 4.7, or docker)."
+    exit 1
+fi
+echo "Using compose engine: ${COMPOSE}"
+
 build() {
-    echo "Building docker images..."
-    docker compose -f "${COMPOSE_FILE}" build
+    echo "Building images..."
+    ${COMPOSE} -f "${COMPOSE_FILE}" build
 }
 
 up() {
     echo "Starting containers..."
-    docker compose -f "${COMPOSE_FILE}" up -d
+    ${COMPOSE} -f "${COMPOSE_FILE}" up -d
 }
 
 down() {
     echo "Stopping containers..."
-    docker compose -f "${COMPOSE_FILE}" down
+    ${COMPOSE} -f "${COMPOSE_FILE}" down
 }
 
 ############################################

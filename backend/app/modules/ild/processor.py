@@ -40,10 +40,8 @@ def _ist_now() -> datetime:
     return datetime.now(ZoneInfo("Asia/Kolkata"))
 
 
-def _scope_prr(rule: str) -> bool:
-    suffixes = [s.strip().lower() for s in settings.PRR_SCOPE_SUFFIXES.split(",") if s.strip()]
-    rl = rule.lower()
-    return any(rl.endswith(suf) or f"_{suf}" in rl for suf in suffixes)
+# Shared config-driven scope filter (PRR = name CONTAINS suffix)
+from app.modules.ild.helpers import in_prr_scope as _scope_prr
 
 
 async def _create_status(
@@ -194,7 +192,7 @@ async def process_ild_request(
                         db.add(detail)
 
                         # Map out standardized action labels for context hydration
-                        mapped_action = row["ACTION"].upper()
+                        mapped_action = action  # already normalized upper-case, defaults to ADD
 
                         # Update live context maps for future batch iterations
                         rl = realm_raw.lower()
@@ -212,15 +210,8 @@ async def process_ild_request(
                             ctx.prr_rules.add(final_rule_name.lower())
                         elif prr_eval["decision"] in DELETE_DECISIONS:
                             ctx.prr_realms.discard(rl)
-                else:
-                    db.add(AuditLog(
-                        request_id=request.id,
-                        level="DEBUG",
-                        entry_type="PRR",
-                        message=f"Out-of-scope PRR row skipped: rule={rule_raw}",
-                        instance_label=inst["instance_label"],
-                        dra_type=inst["dra_type"],
-                    ))
+                # Out-of-scope PRR rows are passed through silently
+                # (no log entry, no DB record) per scope-filtering spec.
 
                 # ── RBAR evaluation ───────────────────────────────────────
                 if rbar_entry and start_addr is not None:
@@ -255,7 +246,7 @@ async def process_ild_request(
                         start_i = int(start_addr)
                         end_i = int(end_addr) + 1  
                         
-                        mapped_action = row["ACTION"].upper()
+                        mapped_action = action  # already normalized upper-case, defaults to ADD
                         
                         # Sync the RBAR pipeline tree structure
                         ctx.rbar_pending_tree.add(Interval(

@@ -86,16 +86,9 @@ def _iter_dump_rows(file_path: str) -> tuple[list[str], Iterator[dict]]:
     return header or [], data_rows
 
 
-def _in_prr_scope(name: str) -> bool:
-    suffixes = [s.strip().lower() for s in settings.PRR_SCOPE_SUFFIXES.split(",") if s.strip()]
-    nl = name.lower()
-    return any(nl.endswith(suf) or f"_{suf}" in nl for suf in suffixes)
-
-
-def _in_rbar_scope(destination: str) -> bool:
-    suffixes = [s.strip().lower() for s in settings.RBAR_SCOPE_SUFFIXES.split(",") if s.strip()]
-    dl = (destination or "").lower()
-    return any(dl.endswith(suf) for suf in suffixes)
+# Scope filters are shared, config-driven helpers (PRR = contains, RBAR = endswith)
+from app.modules.ild.helpers import in_prr_scope as _in_prr_scope
+from app.modules.ild.helpers import in_rbar_scope as _in_rbar_scope
 
 
 # ── Public parse functions ─────────────────────────────────────────────────────
@@ -148,6 +141,7 @@ def parse_rbar_dump(file_path: str) -> list[dict]:
         raw_end = row.get("endAddr", "").strip()
 
         if not raw_start or not raw_end:
+            logger.warning("RBAR row skipped (missing startAddr/endAddr): %s", row)
             continue
 
         try:

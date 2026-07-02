@@ -12,8 +12,8 @@ from app.core.config import settings
 
 router = APIRouter(prefix="/dumps", tags=["dumps"])
 
-DUMP_UPLOAD_DIR = Path("/tmp/odd_dumps")
-DUMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+# Config-driven upload path (never hardcode paths); created lazily on first use
+DUMP_UPLOAD_DIR = Path(settings.DUMP_UPLOAD_PATH)
 
 
 @router.post("/ingest")
@@ -25,6 +25,7 @@ async def ingest_dump_file(
     _=Depends(require_operator),
 ):
     """Upload a dump CSV and queue it for ingestion."""
+    DUMP_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dest_path = DUMP_UPLOAD_DIR / file.filename
 
     async with aiofiles.open(dest_path, "wb") as f:
@@ -32,8 +33,8 @@ async def ingest_dump_file(
         await f.write(content)
 
     # Dispatch Celery task
-    from app.workers.tasks import ingest_dump
-    task = ingest_dump.delay(
+    from app.workers.tasks import task_ingest_dump
+    task = task_ingest_dump.delay(
         str(dest_path),
         dra_type,
         instance_label,
@@ -46,6 +47,17 @@ async def ingest_dump_file(
         "dra_type": dra_type,
         "instance_label": instance_label,
     }
+
+
+@router.post("/scan")
+async def trigger_dump_scan(_=Depends(require_operator)):
+    """
+    Manually trigger a scan of the configured dump source
+    (DUMP_INCOMING_PATH folder by default) for new dump files.
+    """
+    from app.workers.tasks import task_scan_incoming_dumps
+    task = task_scan_incoming_dumps.delay()
+    return {"task_id": task.id, "message": "Dump source scan queued"}
 
 
 @router.post("/reconcile")

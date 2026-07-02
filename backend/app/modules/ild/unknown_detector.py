@@ -16,22 +16,14 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 IST = ZoneInfo("Asia/Kolkata")
 
-PRR_SCOPE_SUFFIXES = [s.strip().lower() for s in settings.PRR_SCOPE_SUFFIXES.split(",") if s.strip()]
-RBAR_SCOPE_SUFFIXES = [s.strip().lower() for s in settings.RBAR_SCOPE_SUFFIXES.split(",") if s.strip()]
-
 ADD_DECISIONS = {DecisionType.ADD.value, DecisionType.DEPENDENCY_ADD.value}
 DEL_DECISIONS = {DecisionType.DELETE.value, DecisionType.DEPENDENCY_DELETE.value}
 SUPERSEDE_DECISIONS = {DecisionType.SUPERSEDE.value, DecisionType.SUPERSEDE_PENDING.value}
 
-
-def _in_prr_scope(name: str) -> bool:
-    nl = name.lower()
-    return any(nl.endswith(suf) or f"_{suf}" in nl for suf in PRR_SCOPE_SUFFIXES)
-
-
-def _in_rbar_scope(destination: str) -> bool:
-    dl = (destination or "").lower()
-    return any(dl.endswith(suf) for suf in RBAR_SCOPE_SUFFIXES)
+# Shared config-driven scope filters (PRR = contains, RBAR = endswith),
+# evaluated at call time so env changes don't require module reloads.
+from app.modules.ild.helpers import in_prr_scope as _in_prr_scope
+from app.modules.ild.helpers import in_rbar_scope as _in_rbar_scope
 
 
 def _normalize_string(text: str) -> str:

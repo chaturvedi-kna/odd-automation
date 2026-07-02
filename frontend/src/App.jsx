@@ -1,11 +1,14 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { defaultModule } from './modules/registry'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import NewRequest from './pages/NewRequest'
+import RequestsList from './pages/RequestsList'
 import RequestDetail from './pages/RequestDetail'
+import UnknownEntries from './pages/UnknownEntries'
 import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
 import DumpsPage from './pages/DumpsPage'
@@ -19,6 +22,7 @@ function PrivateRoute({ children }) {
 }
 
 export default function App() {
+  const defaultNewRequest = `/requests/new/${defaultModule().id.toLowerCase()}`
   return (
     <QueryClientProvider client={qc}>
       <AuthProvider>
@@ -28,8 +32,12 @@ export default function App() {
             <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
-              <Route path="requests/new" element={<NewRequest />} />
+              <Route path="requests" element={<RequestsList />} />
+              {/* Module-slot: each registered module gets its own wizard URL */}
+              <Route path="requests/new" element={<Navigate to={defaultNewRequest} replace />} />
+              <Route path="requests/new/:moduleId" element={<NewRequest />} />
               <Route path="requests/:id" element={<RequestDetail />} />
+              <Route path="unknown-entries" element={<UnknownEntries />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="dumps" element={<DumpsPage />} />
               <Route path="settings" element={<Settings />} />
