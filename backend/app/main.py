@@ -14,6 +14,8 @@ from app.api.routes.notifications_settings import (
     settings_router,
 )
 from app.api.routes.rollback import router as rollback_router
+from app.api.routes.users import router as users_router
+from app.api.routes.master_odd import router as master_odd_router
 
 app = FastAPI(title="ODD Automation API", version="1.0.0")
 
@@ -39,6 +41,8 @@ app.include_router(sse_router, prefix=API_PREFIX)
 app.include_router(notifications_router, prefix=API_PREFIX)
 app.include_router(settings_router, prefix=API_PREFIX)
 app.include_router(rollback_router, prefix=API_PREFIX)
+app.include_router(users_router, prefix=API_PREFIX)
+app.include_router(master_odd_router, prefix=API_PREFIX)
 
 
 @app.get("/health")

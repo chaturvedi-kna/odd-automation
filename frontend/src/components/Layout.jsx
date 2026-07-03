@@ -5,7 +5,7 @@ import api from '../api/client'
 import { listModules } from '../modules/registry'
 import {
   LayoutDashboard, ListChecks, BarChart3, Database,
-  Settings, LogOut, Bell, AlertTriangle, Activity,
+  Settings, LogOut, Bell, AlertTriangle, Activity, Table2, Shield,
 } from 'lucide-react'
 
 // Core navigation is module-agnostic; module entries are injected from the
@@ -15,10 +15,14 @@ const CORE_NAV_TOP = [
   { to: '/requests',  icon: ListChecks,      label: 'Requests' },
 ]
 const CORE_NAV_BOTTOM = [
+  { to: '/master-odd',      icon: Table2,        label: 'Master ODD' },
   { to: '/analytics',       icon: BarChart3,     label: 'Analytics' },
   { to: '/dumps',           icon: Database,      label: 'Dump Ingestion' },
   { to: '/unknown-entries', icon: AlertTriangle, label: 'Unknown Entries' },
   { to: '/settings',        icon: Settings,      label: 'Settings' },
+]
+const ADMIN_NAV = [
+  { to: '/admin', icon: Shield, label: 'Admin Panel' },
 ]
 
 function NavItem({ to, icon: Icon, label }) {
@@ -90,6 +94,15 @@ export default function Layout() {
             System
           </p>
           {CORE_NAV_BOTTOM.map(item => <NavItem key={item.to} {...item} />)}
+
+          {user?.role === 'admin' && (
+            <>
+              <p className="px-3 pt-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-brand-300/70">
+                Administration
+              </p>
+              {ADMIN_NAV.map(item => <NavItem key={item.to} {...item} />)}
+            </>
+          )}
         </nav>
 
         <div className="px-3 py-3 border-t border-brand-800">

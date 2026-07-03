@@ -56,17 +56,17 @@ export default function RequestsList() {
         <table className="w-full text-xs">
           <thead>
             <tr className="border-b border-gray-700 text-gray-400">
-              {['Status', 'Module', 'File', 'Rows (ok/skip/fail)', 'Instances', 'Created (IST)', 'Completed (IST)'].map(h => (
+              {['Request ID', 'Azure Req ID', 'Status', 'Module', 'File', 'Rows (ok/skip/fail)', 'Instances', 'Created (IST)', 'Completed (IST)'].map(h => (
                 <th key={h} className="px-4 py-2.5 text-left font-medium whitespace-nowrap">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">Loading…</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">Loading…</td></tr>
             )}
             {!isLoading && items.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-500">No requests found.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-8 text-center text-gray-500">No requests found.</td></tr>
             )}
             {items.map(r => (
               <tr
@@ -74,6 +74,8 @@ export default function RequestsList() {
                 onClick={() => navigate(`/requests/${r.id}`)}
                 className="border-b border-gray-700/40 hover:bg-gray-700/20 cursor-pointer transition-colors"
               >
+                <td className="px-4 py-2.5 font-mono text-gray-300" title={r.id}>{r.id.slice(0, 8)}</td>
+                <td className="px-4 py-2.5 font-mono text-amber-300">{r.azure_request_id ?? '—'}</td>
                 <td className="px-4 py-2.5">
                   <span className={`px-2 py-0.5 rounded-full font-bold ${STATUS_BADGE[r.status] ?? 'bg-gray-700 text-gray-300'}`}>
                     {r.status}

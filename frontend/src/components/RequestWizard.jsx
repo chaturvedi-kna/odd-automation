@@ -8,6 +8,7 @@ import { useNavigate } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { Upload, Play, Download, CheckCircle2, AlertCircle, FileText, X } from 'lucide-react'
 import api from '../api/client'
+import { downloadFile } from '../api/download'
 import InstanceSelector from './InstanceSelector'
 import ProgressBar from './ProgressBar'
 
@@ -22,6 +23,7 @@ export default function RequestWizard({ module }) {
   const fileRef = useRef(null)
 
   const [file, setFile] = useState(null)
+  const [azureRequestId, setAzureRequestId] = useState('')
   const [dragging, setDragging] = useState(false)
   const [instances, setInstances] = useState([])
   const [extra, setExtra] = useState({})
@@ -44,6 +46,7 @@ export default function RequestWizard({ module }) {
       fd.append('file', file)
       fd.append('module', module.id)
       fd.append('selected_instances', JSON.stringify(instances))
+      fd.append('azure_request_id', azureRequestId.trim())
       const r = await api.post('/requests/', fd)
       return r.data
     },
@@ -105,6 +108,24 @@ export default function RequestWizard({ module }) {
               </div>
             </>
           )}
+        </div>
+      </section>
+
+      {/* ── Azure Request ID ───────────────────────────────────────────── */}
+      <section className="rounded-xl border border-gray-700 bg-gray-800/40 overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-700">
+          <span className="text-sm font-semibold text-gray-200">Azure Request ID</span>
+        </div>
+        <div className="p-4">
+          <input
+            value={azureRequestId}
+            onChange={e => setAzureRequestId(e.target.value)}
+            placeholder="e.g. AZR-123456 (external change ticket reference)"
+            className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-200 font-mono focus:outline-none focus:border-sky-500"
+          />
+          <p className="text-xs text-gray-500 mt-1.5">
+            Optional — links this change request to the Azure ticket it was raised under.
+          </p>
         </div>
       </section>
 
@@ -195,13 +216,13 @@ export default function RequestWizard({ module }) {
           </div>
 
           <div className="px-5 pb-5 flex gap-3">
-            <a
-              href={`/api/exports/${requestId}/delta`}
+            <button
+              onClick={() => downloadFile(`/exports/${requestId}/delta`, `delta_${requestId.slice(0, 8)}.xlsx`)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-sky-600/50 bg-sky-600/10 hover:bg-sky-600/20 text-sky-300 text-sm font-medium transition-all"
             >
               <Download size={14} />
               Delta Excel
-            </a>
+            </button>
             <button
               onClick={() => nav(`/requests/${requestId}`)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-600 bg-gray-700/30 hover:bg-gray-700 text-gray-300 text-sm font-medium transition-all"

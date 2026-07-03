@@ -30,6 +30,7 @@ async def create_request(
     file: UploadFile = File(...),
     module: str = Form(default="ILD"),
     selected_instances: str = Form(...),   # JSON string: [{dra_type, instance_label}, ...]
+    azure_request_id: str = Form(default=""),   # external ticket reference
     db: AsyncSession = Depends(get_db),
     current_user=Depends(require_operator),
 ):
@@ -63,6 +64,7 @@ async def create_request(
         module=module,
         status=RequestStatus.QUEUED.value,
         uploaded_file_name=file.filename,
+        azure_request_id=azure_request_id.strip() or None,
         created_by_user_id=current_user.id,
         selected_instances=instances,
     )
@@ -79,6 +81,7 @@ async def create_request(
         "status": RequestStatus.QUEUED.value,
         "module": module,
         "uploaded_file_name": file.filename,
+        "azure_request_id": azure_request_id.strip() or None,
     }
 
 
@@ -198,6 +201,7 @@ def _req_summary(r: ChangeRequest) -> dict:
         "module": r.module,
         "status": r.status,
         "uploaded_file_name": r.uploaded_file_name,
+        "azure_request_id": r.azure_request_id,
         "total_rows": r.total_rows,
         "processed_rows": r.processed_rows,
         "skipped_rows": r.skipped_rows,

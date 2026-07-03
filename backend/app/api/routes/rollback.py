@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.deps import get_db
-from app.api.deps.auth import require_operator
+from app.api.deps.auth import require_admin
 
 router = APIRouter(prefix="/requests", tags=["rollback"])
 
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/requests", tags=["rollback"])
 async def rollback_request(
     request_id: str,
     db: AsyncSession = Depends(get_db),
-    current_user=Depends(require_operator),
+    current_user=Depends(require_admin),   # rollback is an admin-only action
 ):
     """
     Cancel/rollback a request that has not been fully implemented yet:

@@ -6,6 +6,8 @@ import {
   CheckCircle2, Clock, XCircle, RotateCcw, AlertTriangle,
 } from 'lucide-react'
 import api from '../api/client'
+import { downloadFile } from '../api/download'
+import { useAuth } from '../contexts/AuthContext'
 
 const DECISION_STYLES = {
   ADD:                'bg-green-500/15 text-green-300 border-green-500/30',
@@ -43,6 +45,7 @@ export default function RequestDetail() {
   const { id } = useParams()
   const nav = useNavigate()
   const qc = useQueryClient()
+  const { user } = useAuth()
   const [auditOpen, setAuditOpen] = useState(false)
   const [filterInst, setFilterInst] = useState('')
   const [filterDecision, setFilterDecision] = useState('')
@@ -79,9 +82,9 @@ export default function RequestDetail() {
   const uniqueInstances = [...new Set(statuses.map(s => s.instance_label))].sort()
   const uniqueDecisions = [...new Set(statuses.map(s => s.decision))]
 
-  // Rollback = cancel entries still awaiting implementation on the DRA;
-  // only fully rolled-back requests are excluded.
-  const canRollback = req.status !== 'ROLLEDBACK'
+  // Rollback = cancel entries still awaiting implementation on the DRA.
+  // Admin-only action (backend enforces via require_admin as well).
+  const canRollback = req.status !== 'ROLLEDBACK' && user?.role === 'admin'
 
   return (
     <div className="space-y-6 pb-10">
@@ -94,7 +97,14 @@ export default function RequestDetail() {
               {req.status}
             </span>
           </div>
-          <p className="text-sm text-gray-400 mt-1">{req.uploaded_file_name}</p>
+          <p className="text-sm text-gray-400 mt-1">
+            {req.uploaded_file_name}
+            {req.azure_request_id && (
+              <span className="ml-3 font-mono text-xs text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded">
+                Azure: {req.azure_request_id}
+              </span>
+            )}
+          </p>
           <p className="text-xs text-gray-500 mt-0.5">
             Created {req.created_at ? new Date(req.created_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '—'}
             {req.completed_at && ` · Completed ${new Date(req.completed_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}`}
@@ -104,10 +114,11 @@ export default function RequestDetail() {
           <button onClick={() => refetch()} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-600 hover:bg-gray-700 text-gray-300 text-sm">
             <RefreshCw size={13} /> Refresh
           </button>
-          <a href={`/api/exports/${id}/delta`}
+          <button
+            onClick={() => downloadFile(`/exports/${id}/delta`, `delta_${id.slice(0, 8)}.xlsx`)}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-sky-600/50 bg-sky-600/10 hover:bg-sky-600/20 text-sky-300 text-sm">
             <Download size={13} /> Delta Excel
-          </a>
+          </button>
           {canRollback && (
             <button
               onClick={() => { if (confirm('Cancel all entries of this request that are still pending / awaiting implementation?')) rollback.mutate() }}
@@ -193,7 +204,10 @@ export default function RequestDetail() {
                       {s.impl_status ?? 'N/A'}
                     </span>
                   </td>
-                  <td className="px-4 py-2 text-gray-500 max-w-xs truncate">{s.dependency_note ?? s.reason ?? ''}</td>
+                  {/* Note must never truncate — wrap long dependency notes/reasons */}
+                  <td className="px-4 py-2 text-gray-500 max-w-md whitespace-normal break-words leading-relaxed">
+                    {s.dependency_note ?? s.reason ?? ''}
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
@@ -212,13 +226,16 @@ export default function RequestDetail() {
           </div>
           <div className="p-4 flex flex-wrap gap-2">
             {req.selected_instances.map(inst => (
-              <a
+              <button
                 key={`${inst.dra_type}|${inst.instance_label}`}
-                href={`/api/exports/${id}/master?dra_type=${inst.dra_type}&instance_label=${inst.instance_label}`}
+                onClick={() => downloadFile(
+                  `/exports/${id}/master?dra_type=${inst.dra_type}&instance_label=${inst.instance_label}`,
+                  `ODD_master_${inst.dra_type}_${inst.instance_label}.xlsx`,
+                )}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-600 bg-gray-700/30 hover:bg-gray-700 text-gray-300 text-xs font-mono"
               >
                 <Download size={12} /> {inst.instance_label}
-              </a>
+              </button>
             ))}
           </div>
         </section>

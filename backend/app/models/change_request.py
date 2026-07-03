@@ -16,6 +16,8 @@ class ChangeRequest(Base):
 
     request_version = Column(Integer, nullable=False, default=1)
     uploaded_file_name = Column(String, nullable=True)
+    # External change ticket reference (entered by the operator at upload time)
+    azure_request_id = Column(String, nullable=True)
 
     total_rows = Column(Integer, nullable=False, default=0)
     processed_rows = Column(Integer, nullable=False, default=0)

@@ -123,12 +123,19 @@ async def process_ild_request(
             action = (row.get("ACTION") or "ADD").upper()
 
             # ── Create PRR entry ─────────────────────────────────────────
+            def _to_int(v):
+                """mcc/mnc are Integer columns; CSV may deliver str/float/NaN."""
+                try:
+                    return int(float(v)) if str(v).strip() not in ("", "nan", "None") else None
+                except (ValueError, TypeError, OverflowError):
+                    return None
+
             prr_entry = PrrEntry(
                 request_id=request.id,
                 country=row.get("Country") or None,
                 operator=row.get("Operator") or None,
-                mcc=row.get("MCC") or None,
-                mnc=row.get("MNC") or None,
+                mcc=_to_int(row.get("MCC")),
+                mnc=_to_int(row.get("MNC")),
                 realm=realm_raw,
                 prt_rule=rule_raw,
                 action=action,

@@ -62,6 +62,28 @@ async def download_master_odd(
     )
 
 
+@router.get("/master/download")
+async def download_master_odd_standalone(
+    dra_type: str,
+    instance_label: str,
+    current_user=Depends(get_current_user),
+):
+    """Instance-level Master ODD download (no request id required) —
+    used by the Master ODD viewer page."""
+    out_path = Path(settings.EXPORT_PATH) / f"master_{dra_type}_{instance_label}.xlsx"
+
+    import asyncio
+    await asyncio.get_event_loop().run_in_executor(
+        None, _generate_master, dra_type, instance_label, str(out_path)
+    )
+
+    return FileResponse(
+        path=str(out_path),
+        filename=f"ODD_master_{dra_type}_{instance_label}.xlsx",
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
 def _generate_delta(request_id: str, out_path: str):
     from app.db.session import SyncSessionLocal
     from app.modules.ild.exporter import delta_excel

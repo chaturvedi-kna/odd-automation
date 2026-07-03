@@ -12,6 +12,8 @@ import UnknownEntries from './pages/UnknownEntries'
 import Analytics from './pages/Analytics'
 import Settings from './pages/Settings'
 import DumpsPage from './pages/DumpsPage'
+import AdminPanel from './pages/AdminPanel'
+import MasterOdd from './pages/MasterOdd'
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30000 } } })
 
@@ -38,6 +40,8 @@ export default function App() {
               <Route path="requests/new/:moduleId" element={<NewRequest />} />
               <Route path="requests/:id" element={<RequestDetail />} />
               <Route path="unknown-entries" element={<UnknownEntries />} />
+              <Route path="master-odd" element={<MasterOdd />} />
+              <Route path="admin" element={<AdminPanel />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="dumps" element={<DumpsPage />} />
               <Route path="settings" element={<Settings />} />
