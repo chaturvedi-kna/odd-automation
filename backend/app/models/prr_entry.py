@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, String, DateTime, ForeignKey, Index
+from sqlalchemy import Column, String, DateTime, ForeignKey, Index, Integer
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.models.base import Base
@@ -16,8 +16,8 @@ class PrrEntry(Base):
     # CSV columns
     country = Column(String, nullable=True)
     operator = Column(String, nullable=True)
-    mcc = Column(String, nullable=True)
-    mnc = Column(String, nullable=True)
+    mcc = Column(Integer, nullable=True)
+    mnc = Column(Integer, nullable=True)
     realm = Column(String, nullable=True)
     prt_rule = Column(String, nullable=True)
     action = Column(String, nullable=False, default="ADD")   # ADD | DELETE
