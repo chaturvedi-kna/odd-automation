@@ -48,40 +48,82 @@ def _extract_timestamp(filename: str) -> datetime | None:
     return None
 
 
+def _sniff_delimiter(header_line: str) -> str:
+    """
+    DSR exports are TAB-separated per spec, but files that transited
+    through Excel or copy-paste sometimes arrive comma- or
+    semicolon-separated. Pick whichever splits the header into the
+    most columns (TAB wins ties).
+    """
+    candidates = ["\t", ",", ";"]
+    best = max(candidates, key=lambda d: len(header_line.split(d)))
+    if len(header_line.split(best)) <= 1:
+        return "\t"
+    return best
+
+
 def _iter_dump_rows(file_path: str) -> tuple[list[str], Iterator[dict]]:
     """
     Yield (headers, row_dicts) from a DRA dump CSV/TSV file.
-    Skips comment lines; strips leading # from the header line.
+
+    Robustness (fixes "0 rows in scope" on real DSR exports):
+    * utf-8-sig encoding: a UTF-8 BOM would otherwise prefix the first
+      line with \\ufeff so '#...' no longer starts with '#' and the
+      header/comment logic silently skips the whole file.
+    * Delimiter sniffing: TAB per spec, falls back to ','/';' for files
+      that were re-saved through Excel.
+    * Every line is also BOM/whitespace-tolerant before the '#' check.
     """
     header: list[str] | None = None
+    delimiter = "\t"
     data_rows: list[dict] = []
 
-    with open(file_path, encoding="utf-8", errors="replace") as fh:
+    # utf-8-sig strips a leading BOM if present; harmless otherwise
+    with open(file_path, encoding="utf-8-sig", errors="replace") as fh:
         lines = fh.readlines()
 
     for line in lines:
-        stripped = line.rstrip("\n\r")
-        if not stripped:
+        stripped = line.rstrip("\n\r").lstrip('\ufeff')
+        if not stripped.strip():
             continue
 
-        if stripped.startswith("#"):
+        if stripped.lstrip().startswith("#"):
             # Potential header line: starts with "#Application Name" (after the #)
-            candidate = stripped.lstrip("#").strip()
+            candidate = stripped.lstrip().lstrip("#").strip()
             if candidate.lower().startswith("application name"):
-                # This IS the header
-                header = [h.strip() for h in candidate.split("\t")]
+                delimiter = _sniff_delimiter(candidate)
+                header = [h.strip() for h in candidate.split(delimiter)]
+                logger.info(
+                    "Dump header detected: %d columns, delimiter=%r",
+                    len(header), delimiter,
+                )
             # else: pure comment – skip
             continue
 
         if header is None:
             continue  # data before header – skip
 
-        parts = [p.strip() for p in stripped.split("\t")]
+        parts = [p.strip() for p in stripped.split(delimiter)]
         # Pad / truncate to match header length
         while len(parts) < len(header):
             parts.append("")
         row = dict(zip(header, parts))
         data_rows.append(row)
+
+    if header is None:
+        preview = lines[0][:120].rstrip() if lines else "<empty file>"
+        logger.warning(
+            "No '#Application Name' header found in dump file %s — 0 rows will "
+            "be parsed. First line preview: %r (check for missing header line, "
+            "wrong file, or unexpected encoding)",
+            file_path, preview,
+        )
+    elif not data_rows:
+        logger.warning(
+            "Dump header found but no data rows in %s — file may contain only "
+            "comments or use an unexpected line format.",
+            file_path,
+        )
 
     return header or [], data_rows
 

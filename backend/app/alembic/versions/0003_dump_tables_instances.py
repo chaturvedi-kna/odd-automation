@@ -50,27 +50,26 @@ CATEGORY_ORDER = ["Core", "Charging", "Policy", "Layer", "DR", "IoT"]
 
 def _build_instances(dra_type: str, sites: dict) -> list[dict]:
     """
-    Build DRA instance rows with sequential instance_label across categories.
-    Format: {SITE}-{INDEX:02d}  (e.g. DEL-01 … DEL-19)
+    Build DRA instance rows with a per-category instance_label.
+    Format: {SITE}-{CATEGORY}-{INDEX:02d}  (e.g. DEL-CORE-01, DEL-CHARGING-02)
+    The index restarts at 01 within each category of a site.
     """
     rows = []
     for site, cats in sites.items():
-        idx = 1
         for cat in CATEGORY_ORDER:
             count = cats.get(cat, 0)
             if count == 0:
                 continue
-            for _ in range(count):
+            for i in range(1, count + 1):
                 rows.append({
                     "id": str(uuid.uuid4()),
                     "dra_type": dra_type,
                     "site": site,
                     "category": cat,
                     "category_abbrev": CAT_ABBREV[cat],
-                    "instance_label": f"{site}-{idx:02d}",
+                    "instance_label": f"{site}-{cat.upper()}-{i:02d}",
                     "is_active": True,
                 })
-                idx += 1
     return rows
 
 
