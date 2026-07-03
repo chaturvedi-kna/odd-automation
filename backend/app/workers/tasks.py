@@ -26,12 +26,32 @@ def task_process_request(self, request_id: str, csv_path: str, selected_instance
     logger.info("Asynchronous task worker invocation started for request processing: %s", request_id)
 
     async def _run():
-        from app.db.session import AsyncSessionLocal
         from sqlalchemy import update
+        from sqlalchemy.pool import NullPool
+        from sqlalchemy.ext.asyncio import (
+            create_async_engine, async_sessionmaker, AsyncSession,
+        )
         from app.models.change_request import ChangeRequest
         from app.models.enums import RequestStatus
 
-        async with AsyncSessionLocal() as db:
+        # IMPORTANT: build a fresh engine per task run.
+        # asyncio.run() creates a NEW event loop for every task invocation;
+        # a module-level engine would pool asyncpg connections bound to the
+        # PREVIOUS (already-closed) loop, causing "Event loop is closed" /
+        # "Future attached to a different loop" on the next run.
+        # NullPool ensures no connection outlives this loop.
+        engine = create_async_engine(settings.DATABASE_URL, poolclass=NullPool)
+        session_factory = async_sessionmaker(
+            engine, class_=AsyncSession, expire_on_commit=False
+        )
+
+        try:
+            return await _run_with_session(session_factory, update, ChangeRequest, RequestStatus)
+        finally:
+            await engine.dispose()
+
+    async def _run_with_session(session_factory, update, ChangeRequest, RequestStatus):
+        async with session_factory() as db:
             req = (await db.execute(
                 select(ChangeRequest).where(ChangeRequest.id == request_id)
             )).scalars().first()
