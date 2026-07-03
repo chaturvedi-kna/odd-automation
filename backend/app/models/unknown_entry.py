@@ -21,6 +21,8 @@ class UnknownEntry(Base):
     is_acknowledged = Column(Boolean, nullable=False, default=False)
 
     raw_payload = Column(JSONB, nullable=True)
+    first_seen_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_seen_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     __table_args__ = (
